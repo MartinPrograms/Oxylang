@@ -1,0 +1,44 @@
+/*import io from "std/io"
+
+// We are importing raylib here, which is a C library.
+@extern @symbol("InitWindow") fn InitWindow(i32 width, i32 height, ptr<u8> title) -> void;
+@extern @symbol("SetTargetFPS") fn SetTargetFPS(i32 fps) -> void;
+@extern @symbol("WindowShouldClose") fn WindowShouldClose() -> u8; // bool (u8)
+@extern @symbol("CloseWindow") fn CloseWindow() -> void;
+
+@entry
+fn main() -> u8 {
+    let a = 0;
+    let b: ptr<i32> = addr(a);
+    let c = deref(b);
+    io.println("Hello, World!");
+    io.println("Value of a: " + a);
+    io.println("Value of b (pointer to a): " + b);
+    io.println("Value of c (dereferenced b): " + c);
+
+    let width: i32 = 800;
+    let height: i32 = 450;
+    let title: ptr<u8> = "Hello World"; // The null terminator is automatically added.
+
+    InitWindow(width, height, title);
+    SetTargetFPS(60);
+
+    io.println("Window initialized!");
+
+    while (WindowShouldClose() == 0) {
+        // Game loop would go here
+        io.println("Running...");
+    }
+
+    io.println("Closing window...");
+
+    CloseWindow();
+    return 0;
+}*/
+
+struct test {
+    a: i32;
+    b: array<ptr<i32>, 3>; // statically sized array
+    c: ptr<i32>; // pointer to an integer
+    d: ptr<array<i32, 5>>; // pointer to a statically sized array
+}
