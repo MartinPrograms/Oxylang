@@ -20,6 +20,8 @@ namespace Oxy {
 
         size_t currentIndex = 0;
 
+        bool consumeOpeningGeneric();
+        bool consumeClosingGeneric();
         Type *parseType();
         Ast::Expression *parseExpression();
         std::vector<Ast::Expression *> parseParameters();

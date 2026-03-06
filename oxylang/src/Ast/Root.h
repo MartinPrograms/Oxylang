@@ -15,14 +15,17 @@ namespace Oxy::Ast {
 
         std::string ToString() const override {
             std::string result = "Root:\n";
+            result += "Variables:\n";
             for (const auto& var : variables) {
-                result += "  Variable: " + var->ToString() + "\n";
+                result += var->ToString() + "\n";
             }
+            result += "Functions:\n";
             for (const auto& func : functions) {
-                result += "  Function: " + func->ToString() + "\n";
+                result += func->ToString() + "\n";
             }
+            result += "Structs:\n";
             for (const auto& strct : structs) {
-                result += "  Struct: " + strct->ToString() + "\n";
+                result += strct->ToString() + "\n";
             }
             return result;
         }

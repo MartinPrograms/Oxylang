@@ -9,6 +9,33 @@ namespace Oxy {
         return {{}, {}, std::move(structs), Peek().line, Peek().column};
     }
 
+    bool Parser::consumeOpeningGeneric() {
+        if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::LessThan) {
+            Advance();
+            return true;
+        } else if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::ShiftLeft) {
+            auto shiftLeftToken = Peek();
+            tokens[currentIndex].value = Operator::LessThan;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool Parser::consumeClosingGeneric() {
+        // Consume > or >>
+        if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::GreaterThan) {
+            Advance();
+            return true;
+        } else if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::ShiftRight) {
+            auto shiftRightToken = Peek();
+            tokens[currentIndex].value = Operator::GreaterThan;
+            return true;
+        }
+
+        return false;
+    }
+
     Type * Parser::parseType() {
         // Types can be nested identifiers with <T> generics, like "Option<i32>", "Result<String, Error>", etc.
         // There are 2 exceptions to this: ptr<T> and array<T, N>, which are keywords.
@@ -18,42 +45,46 @@ namespace Oxy {
             auto kwToken = Match(Token::Kind::Keyword);
             if (std::get<Keyword>(kwToken.value) == Keyword::Ptr) {
                 Advance(); // consume 'ptr'
-                if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::LessThan) {
+
+                if (!consumeOpeningGeneric()) {
                     errors.push_back({fmt::format("Expected '<' after 'ptr' in type declaration"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
-                Advance(); // consume '<'
+
                 Type *nestedType = parseType();
-                if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::GreaterThan) {
+                if (!consumeClosingGeneric()) {
                     errors.push_back({fmt::format("Expected '>' after nested type in 'ptr' declaration"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
-                Advance(); // consume '>'
+
                 return new Type(LiteralType::Pointer, 0, nestedType);
             } else if (std::get<Keyword>(kwToken.value) == Keyword::Array) {
                 Advance(); // consume 'array'
-                if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::LessThan) {
+
+                if (!consumeOpeningGeneric()) {
                     errors.push_back({fmt::format("Expected '<' after 'array' in type declaration"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
-                Advance(); // consume '<'
+
                 Type *nestedType = parseType();
                 if (Peek().kind != Token::Kind::Syntax || std::get<Syntax>(Peek().value) != Syntax::Comma) {
                     errors.push_back({fmt::format("Expected ',' after nested type in 'array' declaration"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
+
                 Advance(); // consume ','
                 if (Match(Token::Kind::IntLiteral).kind != Token::Kind::IntLiteral) {
                     errors.push_back({fmt::format("Expected integer literal for array size in 'array' declaration"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
+
                 auto sizeToken = Match(Token::Kind::IntLiteral);
                 Advance(); // consume size literal
-                if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::GreaterThan) {
+                if (!consumeClosingGeneric()) {
                     errors.push_back({fmt::format("Expected '>' after array size in 'array' declaration"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
-                Advance(); // consume '>'
+
                 return new Type(LiteralType::Int, std::get<uint64_t>(sizeToken.value), nestedType);
             }
         }
@@ -67,14 +98,18 @@ namespace Oxy {
             auto typeNameToken = Match(Token::Kind::Identifier);
             Advance(); // consume the identifier
             std::string typeName = std::get<std::string>(typeNameToken.value);
-            if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::LessThan) {
-                Advance(); // consume '<'
+            if (consumeOpeningGeneric()) {
                 Type *nestedType = parseType();
                 if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::GreaterThan) {
                     errors.push_back({fmt::format("Expected '>' after nested type in generic type declaration"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
-                Advance(); // consume '>'
+
+                if (!consumeClosingGeneric()) {
+                    errors.push_back({fmt::format("Expected '>' after nested type in generic type declaration"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+
                 return new Type(LiteralType::UserDefined, 0, nestedType, typeName);
             } else {
                 return new Type(LiteralType::UserDefined, 0, nullptr, typeName);

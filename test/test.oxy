@@ -1,4 +1,4 @@
-/*import io from "std/io"
+import io from "std/io"
 
 // We are importing raylib here, which is a C library.
 @extern @symbol("InitWindow") fn InitWindow(i32 width, i32 height, ptr<u8> title) -> void;
@@ -34,7 +34,7 @@ fn main() -> u8 {
 
     CloseWindow();
     return 0;
-}*/
+}
 
 struct test {
     a: i32;
