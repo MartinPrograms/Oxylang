@@ -63,7 +63,11 @@ namespace Oxy {
             if (IsDigit()) {
                 std::string raw;
                 bool isFloat = false;
-                bool isHex   = false;
+                bool isFloat32 = false;
+                bool isHex = false;
+                bool isBin = false;
+                bool isUnsigned = false;
+                uint32_t bitWidth = 0;
 
                 if (Peek() == '0' && (PeekNext() == 'x' || PeekNext() == 'X')) {
                     raw += Advance(); // '0'
@@ -73,6 +77,16 @@ namespace Oxy {
                         raw += Advance();
                     if (raw.size() == 2) {
                         errors.push_back({fmt::format("Invalid hexadecimal literal '{}'", raw), "", tokLine, tokCol});
+                        continue;
+                    }
+                } else if (Peek() == '0' && (PeekNext() == 'b' || PeekNext() == 'B')) {
+                    raw += Advance(); // '0'
+                    raw += Advance(); // 'b' / 'B'
+                    isBin = true;
+                    while (!IsAtEnd() && (Peek() == '0' || Peek() == '1'))
+                        raw += Advance();
+                    if (raw.size() == 2) {
+                        errors.push_back({fmt::format("Invalid binary literal '{}'", raw), "", tokLine, tokCol});
                         continue;
                     }
                 } else {
@@ -89,13 +103,58 @@ namespace Oxy {
                             raw += Advance();
                     }
                 }
+                // Check for a suffxi like 'f', or 'uX'/'iX' for explicit types
+                if (!IsAtEnd() && std::isalpha(static_cast<unsigned char>(Peek()))) {
+                    if (Peek() == 'f') {
+                        isFloat32 = true;
+                        raw += Advance(); // consume 'f'
+                    } else if (Peek() == 'u' || Peek() == 'i') {
+                        isUnsigned = (Peek() == 'u');
+                        raw += Advance(); // consume 'u' or 'i'
+                        std::string bitWidthStr;
+                        while (!IsAtEnd() && std::isdigit(static_cast<unsigned char>(Peek())))
+                            bitWidthStr += Advance();
+                        if (bitWidthStr.empty()) {
+                            errors.push_back({fmt::format("Expected bit width after '{}' in numeric literal '{}'", isUnsigned ? 'u' : 'i', raw), "", tokLine, tokCol});
+                            continue;
+                        }
+                        bitWidth = std::stoul(bitWidthStr);
+                    }
+                }
 
                 try {
                     if (isFloat) {
-                        tokens.push_back(Token::MakeFloat(std::stod(raw), tokLine, tokCol));
+                        LiteralType type = isFloat32 ? LiteralType::F32 : LiteralType::F64;
+                        double value = std::stod(raw);
+                        tokens.push_back(Token::MakeFloat(value, type, tokLine, tokCol));
                     } else {
-                        const int base = isHex ? 16 : 10;
-                        tokens.push_back(Token::MakeInt(std::stoull(raw, nullptr, base), tokLine, tokCol));
+                        uint64_t value = 0;
+                        if (isHex) {
+                            value = std::stoull(raw, nullptr, 16);
+                        } else if (isBin) {
+                            value = std::stoull(raw.substr(2), nullptr, 2);
+                        } else {
+                            value = std::stoull(raw, nullptr, 10);
+                        }
+
+                        LiteralType type;
+                        if (isUnsigned) {
+                            if (bitWidth == 0) bitWidth = 32; // default to unsigned 32-bit if 'u' is specified without a bit width
+                            type = (bitWidth == 8) ? LiteralType::U8 :
+                                   (bitWidth == 16) ? LiteralType::U16 :
+                                   (bitWidth == 32) ? LiteralType::U32 :
+                                   (bitWidth == 64) ? LiteralType::U64 :
+                                   throw std::runtime_error(fmt::format("Unsupported unsigned integer bit width: {}", bitWidth));
+                        } else {
+                            if (bitWidth == 0) bitWidth = 32; // default to signed 32-bit if 'i' is specified without a bit width
+                            type = (bitWidth == 8) ? LiteralType::I8 :
+                                   (bitWidth == 16) ? LiteralType::I16 :
+                                   (bitWidth == 32) ? LiteralType::I32 :
+                                   (bitWidth == 64) ? LiteralType::I64 :
+                                   throw std::runtime_error(fmt::format("Unsupported signed integer bit width: {}", bitWidth));
+                        }
+
+                        tokens.push_back(Token::MakeInt(value, type, tokLine, tokCol));
                     }
                 } catch (const std::exception& e) {
                     errors.push_back({fmt::format("Invalid numeric literal '{}': {}", raw, e.what()), "", tokLine, tokCol});
@@ -118,7 +177,7 @@ namespace Oxy {
                 continue;
             }
 
-            // Check for syntax ( { } ; , )
+            // Check for syntax ( { } ; , ( ) [ ] )
             {
                 bool matched = false;
                 for (auto& [syn, str] : SyntaxToString) {
@@ -130,12 +189,6 @@ namespace Oxy {
                     }
                 }
                 if (matched) continue;
-            }
-
-            if (Peek() == '(' || Peek() == ')' ||
-                Peek() == '[' || Peek() == ']') {
-                tokens.push_back(Token::MakePunctuation(Advance(), tokLine, tokCol));
-                continue;
             }
 
             // String literal

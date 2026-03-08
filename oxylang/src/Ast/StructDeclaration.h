@@ -20,6 +20,9 @@ namespace Oxy::Ast {
                 result += "  " + field->ToString() + "\n";
             }
             result += "}";
+            for (auto* attr : attributes) {
+                result = attr->ToString() + " " + result;
+            }
             return result;
         }
     private:

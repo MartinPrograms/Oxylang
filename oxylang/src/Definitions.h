@@ -40,7 +40,7 @@ namespace Oxy {
         While,
         Struct,
         Import,
-        From,
+        As,
         Ptr,
         Array,
         True,
@@ -53,7 +53,10 @@ namespace Oxy {
         Deref,
         Cast,
         Allocate,
-        Free
+        Free,
+        Break,
+        Continue,
+        For
     };
 
     inline std::map<Keyword, std::string> KeywordToString = {
@@ -65,7 +68,7 @@ namespace Oxy {
         {Keyword::While, "while"},
         {Keyword::Struct, "struct"},
         {Keyword::Import, "import"},
-        {Keyword::From, "from"},
+        {Keyword::As, "as"},
         {Keyword::Ptr, "ptr"},
         {Keyword::Array, "array"},
         {Keyword::True, "true"},
@@ -78,7 +81,10 @@ namespace Oxy {
         {Keyword::Deref, "deref"},
         {Keyword::Cast, "cast"},
         {Keyword::Allocate, "allocate"},
-        {Keyword::Free, "free"}
+        {Keyword::Free, "free"},
+        {Keyword::Break, "break"},
+        {Keyword::Continue, "continue"},
+        {Keyword::For, "for"}
     };
 
     /* Literal types:
@@ -105,8 +111,10 @@ namespace Oxy {
     */
 
     enum class LiteralType {
-        Int,
-        Float,
+        Int, // i32
+        Long, // i64
+        Float, // f32
+        Double, // f64
         I8,
         U8,
         I16,
@@ -118,6 +126,7 @@ namespace Oxy {
         F32,
         F64,
         Void,
+        Undefined,
         Pointer,
         UserDefined
     };
@@ -143,12 +152,16 @@ namespace Oxy {
         Type(LiteralType literalType, long count = 0, Type *nestedType = nullptr, std::string identifier = "") : literalType(literalType), count(count), nestedType(nestedType), identifier(std::move(identifier)) {}
 
         std::string ToString() const {
+            if (literalType == LiteralType::UserDefined) {
+                return identifier;
+            }
+
             std::string result = LiteralToString[literalType];
             if (nestedType) {
                 if (literalType == LiteralType::Pointer) {
                     result += "<" + nestedType->ToString() + ">";
                 } else if (count > 0) {
-                    result += "[" + std::to_string(count) + "]" + "<" + nestedType->ToString() + ">";
+                    result += nestedType->ToString() + "[" + std::to_string(count) + "]";
                 }
             }
             return result;
@@ -180,7 +193,7 @@ namespace Oxy {
     ==, != 	Equality operators 	Left to Right 	8
     = 	Assignment 	Right to Left 	9
     +=, -=, *=, /=, %= 	Compound assignment operators 	Right to Left 	9
-    ++, -- 	Increment, Decrement 	Right to Left 	10
+    ++, -- 	Increment, Decrement 	Right to Left 	0
     */
 
     enum class Operator {
@@ -250,6 +263,81 @@ namespace Oxy {
         {Operator::Arrow, "->"}
     };
 
+    inline std::map<Operator, float> OperatorPrecedence = {
+        {Operator::Parentheses, 1},
+        {Operator::ArraySubscript, 2},
+        {Operator::MemberAccess, 2},
+        {Operator::Addr, 3},
+        {Operator::Deref, 3},
+        {Operator::Cast, 3},
+        {Operator::Multiply, 4},
+        {Operator::Divide, 4},
+        {Operator::Modulus, 4},
+        {Operator::Add, 5},
+        {Operator::Subtract, 5},
+        {Operator::LogicalAnd, 6},
+        {Operator::LogicalOr, 6},
+        {Operator::ShiftLeft, 7},
+        {Operator::ShiftRight, 7},
+        {Operator::BitwiseAnd, 7},
+        {Operator::BitwiseXor, 7},
+        {Operator::BitwiseOr, 7},
+        {Operator::LessThan, 8},
+        {Operator::LessThanOrEqual, 8},
+        {Operator::GreaterThan, 8},
+        {Operator::GreaterThanOrEqual, 8},
+        {Operator::Equal, 8},
+        {Operator::NotEqual, 8},
+        {Operator::Assignment, 9},
+        {Operator::CompoundAssignmentAdd, 9},
+        {Operator::CompoundAssignmentSubtract, 9},
+        {Operator::CompoundAssignmentMultiply, 9},
+        {Operator::CompoundAssignmentDivide, 9},
+        {Operator::CompoundAssignmentModulus, 9},
+        {Operator::Increment, 0},
+        {Operator::Decrement, 0},
+        {Operator::Arrow, 11}
+    };
+
+    inline std::map<Operator, bool> OperatorRightAssociative = {
+        {Operator::Parentheses, false},
+        {Operator::ArraySubscript, false},
+        {Operator::MemberAccess, false},
+        {Operator::Addr, true},
+        {Operator::Deref, true},
+        {Operator::Cast, true},
+        {Operator::Multiply, false},
+        {Operator::Divide, false},
+        {Operator::Modulus, false},
+        {Operator::Add, false},
+        {Operator::Subtract, false},
+        {Operator::LogicalAnd, false},
+        {Operator::LogicalOr, false},
+        {Operator::ShiftLeft, false},
+        {Operator::ShiftRight, false},
+        {Operator::BitwiseAnd, false},
+        {Operator::BitwiseXor, false},
+        {Operator::BitwiseOr, false},
+        {Operator::LessThan, false},
+        {Operator::LessThanOrEqual, false},
+        {Operator::GreaterThan, false},
+        {Operator::GreaterThanOrEqual, false},
+        {Operator::Equal, false},
+        {Operator::NotEqual, false},
+        {Operator::Assignment, true},
+        {Operator::CompoundAssignmentAdd, true},
+        {Operator::CompoundAssignmentSubtract, true},
+        {Operator::CompoundAssignmentMultiply, true},
+        {Operator::CompoundAssignmentDivide, true},
+        {Operator::CompoundAssignmentModulus, true},
+        {Operator::Increment, true},
+        {Operator::Decrement, true},
+        {Operator::Arrow, true}
+    };
+
+    inline float LOWEST_PRECEDENCE = 12.0f;
+    inline float HIGHEST_PRECEDENCE = 0.0f;
+
     // Some other syntax ( { }, ;, , )
     enum class Syntax {
         LeftBrace,
@@ -257,7 +345,11 @@ namespace Oxy {
         Semicolon,
         Colon,
         At,
-        Comma
+        Comma,
+        LeftParen,
+        RightParen,
+        LeftBracket,
+        RightBracket
     };
 
     inline std::map<Syntax, std::string> SyntaxToString = {
@@ -266,7 +358,11 @@ namespace Oxy {
         {Syntax::Semicolon, ";"},
         {Syntax::Colon, ":"},
         {Syntax::At, "@"},
-        {Syntax::Comma, ","}
+        {Syntax::Comma, ","},
+        {Syntax::LeftParen, "("},
+        {Syntax::RightParen, ")"},
+        {Syntax::LeftBracket, "["},
+        {Syntax::RightBracket, "]"}
     };
 }
 

@@ -1,6 +1,9 @@
 #ifndef OXYLANG_NODE_H
 #define OXYLANG_NODE_H
 
+#include <cstdint>
+#include <string>
+
 namespace Oxy::Ast {
 
     // An ast node is a base class for all nodes in the abstract syntax tree.
@@ -8,7 +11,7 @@ namespace Oxy::Ast {
     public:
         explicit Node(int line, int column) : line(line), column(column) {}
         virtual ~Node() = default;
-        virtual std::string ToString() const = 0;
+        [[nodiscard]] virtual std::string ToString() const = 0;
     private:
         int line;
         int column;

@@ -10,29 +10,39 @@
 namespace Oxy::Ast {
     class Root : public Node {
     public:
-        Root(std::vector<VariableDeclaration *> variables, std::vector<Function *> functions, std::vector<StructDeclaration *> structs, int line, int column)
-            : Node(line, column), variables(std::move(variables)), functions(std::move(functions)), structs(std::move(structs)) {}
+        Root(std::vector<VariableDeclaration *> variables, std::vector<Function *> functions, std::vector<StructDeclaration *> structs, std::vector<ImportStatement *> imports, int line, int column)
+            : Node(line, column), functions(std::move(functions)), variables(std::move(variables)), structs(std::move(structs)), imports(std::move(imports)) {}
 
         std::string ToString() const override {
             std::string result = "Root:\n";
-            result += "Variables:\n";
-            for (const auto& var : variables) {
-                result += var->ToString() + "\n";
-            }
+
             result += "Functions:\n";
             for (const auto& func : functions) {
                 result += func->ToString() + "\n";
             }
+
+            result += "Variables:\n";
+            for (const auto& var : variables) {
+                result += var->ToString() + "\n";
+            }
+
             result += "Structs:\n";
             for (const auto& strct : structs) {
                 result += strct->ToString() + "\n";
             }
+
+            result += "Imports:\n";
+            for (const auto& imp : imports) {
+                result += imp->ToString() + "\n";
+            }
+
             return result;
         }
     private:
-        std::vector<VariableDeclaration *> variables;
         std::vector<Function *> functions;
+        std::vector<VariableDeclaration *> variables;
         std::vector<StructDeclaration *> structs;
+        std::vector<ImportStatement *> imports;
     };
 }
 

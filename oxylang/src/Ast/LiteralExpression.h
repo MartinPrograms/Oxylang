@@ -14,10 +14,20 @@ namespace Oxy::Ast {
 
         std::string ToString() const override {
             switch (type) {
-                case LiteralType::Int:
-                    return std::to_string(std::get<uint64_t>(value));
-                case LiteralType::Float:
-                    return std::to_string(std::get<double>(value));
+                case LiteralType::U8:
+                case LiteralType::I8:
+                case LiteralType::U16:
+                case LiteralType::I16:
+                case LiteralType::U32:
+                case LiteralType::I32:
+                case LiteralType::U64:
+                case LiteralType::I64:
+                    return std::to_string(std::get<uint64_t>(value)) + (LiteralToString[type]);
+
+                case LiteralType::F32:
+                case LiteralType::F64:
+                    return std::to_string(std::get<double>(value)) + (LiteralToString[type]);
+
                 case LiteralType::Pointer:
                     return "\"" + std::get<std::string>(value) + "\"";
                 default:
