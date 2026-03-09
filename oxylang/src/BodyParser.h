@@ -1,7 +1,6 @@
 #ifndef OXYLANG_BODYPARSER_H
 #define OXYLANG_BODYPARSER_H
 #include <vector>
-#include <bits/stl_vector.h>
 
 #include "Error.h"
 #include "Parser.h"
