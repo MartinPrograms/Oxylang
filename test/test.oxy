@@ -1,3 +1,14 @@
+import "std/io" as io;
+
+// We are importing raylib here, which is a C library.
+@extern @symbol("InitWindow") fn InitWindow(width: i32, height: i32, title: ptr<u8>) -> void;
+@extern @symbol("SetTargetFPS") fn SetTargetFPS(fps: i32) -> void;
+@extern @symbol("WindowShouldClose") fn WindowShouldClose() -> u8; // bool (u8)
+@extern @symbol("CloseWindow") fn CloseWindow() -> void;
+
+// cstd functions
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
+
 @entry
 fn main() -> u8 {
     let a = 1;
@@ -7,4 +18,25 @@ fn main() -> u8 {
     let e: i32 = deref(c) + deref(d) * 2;
 
     return cast<u8>(e);
+}
+
+fn raylib_example() -> u8 {
+    let width: i32 = 800;
+    let height: i32 = 450;
+    let title: ptr<u8> = "Hello World"; // The null terminator is automatically added.
+
+    InitWindow(width, height, title);
+    SetTargetFPS(60);
+
+    io.println("Window initialized!");
+
+    while (WindowShouldClose() == 0) {
+        // Game loop would go here
+        io.println("Running...");
+    }
+
+    io.println("Closing window...");
+
+    CloseWindow();
+    return 0;
 }

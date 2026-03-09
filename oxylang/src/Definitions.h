@@ -229,7 +229,8 @@ namespace Oxy {
         CompoundAssignmentModulus,
         Increment,
         Decrement,
-        Arrow
+        Arrow,
+        Variadic
     };
 
     inline std::map<Operator, std::string> OperatorToString = {
@@ -260,7 +261,8 @@ namespace Oxy {
         {Operator::CompoundAssignmentModulus, "%="},
         {Operator::Increment, "++"},
         {Operator::Decrement, "--"},
-        {Operator::Arrow, "->"}
+        {Operator::Arrow, "->"},
+        {Operator::Variadic, "..."}
     };
 
     inline std::map<Operator, float> OperatorPrecedence = {

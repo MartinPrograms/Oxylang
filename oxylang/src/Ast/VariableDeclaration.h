@@ -27,7 +27,6 @@ namespace Oxy::Ast {
             for (auto* attr : attributes) {
                 result = attr->ToString() + " " + result;
             }
-            result += ";";
             return result;
         }
     private:

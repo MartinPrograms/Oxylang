@@ -369,12 +369,22 @@ namespace Oxy {
             Advance(); // consume function name
 
             std::vector<Ast::VariableDeclaration *> parameters;
+            bool isVariadic = false;
             if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::LeftParen) {
                 Advance(); // consume '('
 
                 while (Peek().kind != Token::Kind::Syntax || std::get<Syntax>(Peek().value) != Syntax::RightParen) {
                     if (IsAtEnd()) {
                         errors.push_back({fmt::format("Unexpected end of file while parsing function parameters"), "", Peek().line, Peek().column});
+                        break;
+                    }
+
+                    if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::Variadic){
+                        Advance(); // consume '...'
+                        if (Peek().kind != Token::Kind::Syntax || std::get<Syntax>(Peek().value) != Syntax::RightParen) {
+                            errors.push_back({fmt::format("Expected ')' after '...' in parameter list"), "", Peek().line, Peek().column});
+                        }
+                        isVariadic = true;
                         break;
                     }
 
@@ -427,7 +437,7 @@ namespace Oxy {
                 currentIndex = bodyParser.GetCurrentIndex();
             }
 
-            functions.push_back(new Ast::Function(funcName, parameters, attributes, returnType, body, Peek().line, Peek().column));
+            functions.push_back(new Ast::Function(funcName, parameters, isVariadic, attributes, returnType, body, Peek().line, Peek().column));
         }
 
         return functions;
