@@ -136,26 +136,50 @@ namespace Oxy {
 
             if (std::get<Keyword>(tok.value) == Keyword::SizeOf) {
                 Advance(); // consume 'sizeof'
-                if (!expectSyntax(Syntax::LeftParen)) return nullptr;
-                auto type = parseType();
-                if (!type) {
-                    errors->push_back({fmt::format("Expected type in 'sizeof' operator"), "", Peek().line, Peek().column});
-                    return nullptr;
+                // Expect <
+                if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::LessThan) {
+                    Advance(); // consume '<'
+                    auto type = parseType();
+                    if (!type) {
+                        errors->push_back({fmt::format("Expected type in 'sizeof' operator"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::GreaterThan) {
+                        errors->push_back({fmt::format("Expected '>' after type in 'sizeof' operator"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    Advance(); // consume '>'
+                    if (!expectSyntax(Syntax::LeftParen)) {
+                        errors->push_back({fmt::format("Expected '(' after 'sizeof' type in sizeof expression"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    if (!expectSyntax(Syntax::RightParen)) return nullptr;
+                    return new Ast::SizeOfExpression(type, tok.line, tok.column);
                 }
-                if (!expectSyntax(Syntax::RightParen)) return nullptr;
-                return new Ast::SizeOfExpression(type, tok.line, tok.column);
             }
 
             if (std::get<Keyword>(tok.value) == Keyword::AlignOf) {
                 Advance(); // consume 'alignof'
-                if (!expectSyntax(Syntax::LeftParen)) return nullptr;
-                auto type = parseType();
-                if (!type) {
-                    errors->push_back({fmt::format("Expected type in 'alignof' operator"), "", Peek().line, Peek().column});
-                    return nullptr;
+                // Expect <
+                if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::LessThan) {
+                    Advance(); // consume '<'
+                    auto type = parseType();
+                    if (!type) {
+                        errors->push_back({fmt::format("Expected type in 'alignof' operator"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::GreaterThan) {
+                        errors->push_back({fmt::format("Expected '>' after type in 'alignof' operator"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    Advance(); // consume '>'
+                    if (!expectSyntax(Syntax::LeftParen)) {
+                        errors->push_back({fmt::format("Expected '(' after 'alignof' type in alignof expression"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    if (!expectSyntax(Syntax::RightParen)) return nullptr;
+                    return new Ast::AlignOfExpression(type, tok.line, tok.column);
                 }
-                if (!expectSyntax(Syntax::RightParen)) return nullptr;
-                return new Ast::AlignOfExpression(type, tok.line, tok.column);
             }
 
             if (std::get<Keyword>(tok.value) == Keyword::TypeOf) {
