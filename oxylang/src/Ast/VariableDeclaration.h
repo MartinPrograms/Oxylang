@@ -29,6 +29,15 @@ namespace Oxy::Ast {
             }
             return result;
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] const std::string& GetName() const { return name; }
+        [[nodiscard]] Type* GetType() const { return type; }
+        [[nodiscard]] Expression* GetInitializer() const { return initializer; }
+        [[nodiscard]] const std::vector<Attribute*>& GetAttributes() const { return attributes; }
     private:
         std::string name;
         Type *type;

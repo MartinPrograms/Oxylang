@@ -5,6 +5,7 @@
 #include "VariableDeclaration.h"
 #include "Function.h"
 #include "../Definitions.h"
+#include "../Visitor.h"
 
 // Root holds top level declarations like functions, structs, and global variables. It is the root of the abstract syntax tree.
 namespace Oxy::Ast {
@@ -37,6 +38,15 @@ namespace Oxy::Ast {
             }
 
             return result;
+        }
+
+        [[nodiscard]] const std::vector<Function*>& GetFunctions() const { return functions; }
+        [[nodiscard]] const std::vector<VariableDeclaration*>& GetVariables() const { return variables; }
+        [[nodiscard]] const std::vector<StructDeclaration*>& GetStructs() const { return structs; }
+        [[nodiscard]] const std::vector<ImportStatement*>& GetImports() const { return imports; }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
         }
     private:
         std::vector<Function *> functions;

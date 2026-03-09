@@ -20,6 +20,12 @@ namespace Oxy::Ast {
             return result;
         }
 
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetCondition() const { return condition; }
+        [[nodiscard]] const std::vector<Node*>& GetBody() const { return body; }
     private:
         Expression* condition;
         std::vector<Node*> body;

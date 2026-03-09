@@ -25,6 +25,14 @@ namespace Oxy::Ast {
             }
             return result;
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] const std::string& GetName() const { return name; }
+        [[nodiscard]] const std::vector<Attribute*>& GetAttributes() const { return attributes; }
+        [[nodiscard]] const std::vector<VariableDeclaration*>& GetFields() const { return fields; }
     private:
         std::string name;
         std::vector<Attribute*> attributes;

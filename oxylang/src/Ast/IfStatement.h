@@ -42,6 +42,14 @@ namespace Oxy::Ast {
             return result;
         }
 
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] const Branch& GetMainBranch() const { return mainBranch; }
+        [[nodiscard]] const std::vector<Branch>& GetElseIfBranches() const { return elseIfBranches; }
+        [[nodiscard]] const std::vector<Node*>& GetElseBranch() const { return elseBranch; }
+
     private:
         Branch mainBranch;
         std::vector<Branch> elseIfBranches;

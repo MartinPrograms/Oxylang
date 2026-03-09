@@ -11,8 +11,14 @@ namespace Oxy::Ast {
         ~SizeOfExpression() override = default;
 
         std::string ToString() const override {
-            return "sizeof(" + type->ToString() + ")";
+            return "sizeof<" + type->ToString() + ">()";
         }
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Type* GetType() const { return type; }
+
     private:
         Type* type;
     };
@@ -23,8 +29,14 @@ namespace Oxy::Ast {
         ~AlignOfExpression() override = default;
 
         std::string ToString() const override {
-            return "alignof(" + type->ToString() + ")";
+            return "alignof<" + type->ToString() + ">()";
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Type* GetType() const { return type; }
     private:
         Type* type;
     };
@@ -38,6 +50,11 @@ namespace Oxy::Ast {
             return "typeof(" + expr->ToString() + ")";
         }
 
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetExpression() const { return expr; }
     private:
         Expression* expr;
     };

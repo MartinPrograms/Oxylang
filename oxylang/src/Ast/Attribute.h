@@ -27,6 +27,9 @@ namespace Oxy::Ast {
             return result;
         }
 
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
     private:
         std::string name;
         std::vector<Expression*> args;

@@ -18,6 +18,12 @@ namespace Oxy::Ast {
             }
         }
 
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Type* GetType() const { return type; }
+        [[nodiscard]] Expression* GetCount() const { return count; }
     private:
         Type* type;
         Expression *count; // If count is nullptr, then it's a single allocation. Otherwise we allocate T * count.
@@ -32,6 +38,11 @@ namespace Oxy::Ast {
             return "free(" + pointer->ToString() + ")";
         }
 
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetPointer() const { return pointer; }
     private:
         Expression* pointer;
     };

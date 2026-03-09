@@ -12,6 +12,10 @@ namespace Oxy::Ast {
         std::string ToString() const override {
             return "break;";
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
     };
 
     class ContinueStatement : public Node {
@@ -21,6 +25,9 @@ namespace Oxy::Ast {
 
         std::string ToString() const override {
             return "continue;";
+        }
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
         }
     };
 }

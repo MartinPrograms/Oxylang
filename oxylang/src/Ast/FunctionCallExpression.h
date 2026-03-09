@@ -22,6 +22,13 @@ namespace Oxy::Ast {
             result += ")";
             return result;
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetCallee() const { return callee; }
+        [[nodiscard]] const std::vector<Expression*>& GetArguments() const { return arguments; }
     private:
         Expression* callee;
         std::vector<Expression*> arguments;

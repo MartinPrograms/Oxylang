@@ -13,6 +13,10 @@ namespace Oxy::Ast {
         std::string ToString() const override {
             return name;
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
     private:
         std::string name;
     };

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include "../Visitor.h"
 
 namespace Oxy::Ast {
 
@@ -12,6 +13,11 @@ namespace Oxy::Ast {
         explicit Node(int line, int column) : line(line), column(column) {}
         virtual ~Node() = default;
         [[nodiscard]] virtual std::string ToString() const = 0;
+
+        [[nodiscard]] int GetLine() const { return line; }
+        [[nodiscard]] int GetColumn() const { return column; }
+
+        virtual void Accept(Visitor* visitor) = 0;
     private:
         int line;
         int column;

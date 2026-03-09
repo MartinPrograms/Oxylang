@@ -49,6 +49,17 @@ namespace Oxy::Ast {
             result += "}";
             return result;
         }
+
+        [[nodiscard]] const std::string& GetName() const { return name; }
+        [[nodiscard]] const std::vector<VariableDeclaration*>& GetParameters() const { return parameters; }
+        [[nodiscard]] bool IsVariadic() const { return isVariadic; }
+        [[nodiscard]] const std::vector<Attribute*>& GetAttributes() const { return attributes; }
+        [[nodiscard]] Type* GetReturnType() const { return returnType; }
+        [[nodiscard]] const std::vector<Node*>& GetBody() const { return body; }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
     private:
         std::string name;
         std::vector<VariableDeclaration *> parameters;

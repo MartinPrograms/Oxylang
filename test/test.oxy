@@ -1,4 +1,4 @@
-import "std/io" as io;
+/*import "std/io" as io;
 
 // We are importing raylib here, which is a C library.
 @extern @symbol("InitWindow") fn InitWindow(width: i32, height: i32, title: ptr<u8>) -> void;
@@ -9,6 +9,8 @@ import "std/io" as io;
 // cstd functions
 @extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
 
+let test: u8 = 42;
+
 @entry
 fn main() -> u8 {
     let a = 1;
@@ -17,7 +19,7 @@ fn main() -> u8 {
     let d: ptr<i32> = addr(b);
     let e: i32 = deref(c) + deref(d) * 2;
 
-    return cast<u8>(e);
+    return cast<u8>(test);
 }
 
 fn raylib_example() -> u8 {
@@ -39,4 +41,34 @@ fn raylib_example() -> u8 {
 
     CloseWindow();
     return 0;
+}*/
+
+@entry
+fn main() -> u8 {
+    let r5 = 10;
+    r5 = 5;
+    if (r5 > 0) {
+        let r6 = 20;
+        r6 = 15;
+    }
+    // let r7 = r6 would cause out of scope error, as r6 is only defined in the if block.
+
+    for (let i = 0; i < 5; i = i + 1) {
+        let r9 = i * 2;
+        r9 = r9 + 1;
+    }
+
+    return cast<u8>(test_function());
+}
+
+struct test_struct {
+    a: i32;
+    b: i32;
+}
+
+fn test_function() -> i32 {
+    let r10 = 100;
+    let s: test_struct;
+    r10 = r10 - 50;
+    return r10;
 }

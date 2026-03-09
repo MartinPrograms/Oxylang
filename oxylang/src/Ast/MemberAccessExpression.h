@@ -14,6 +14,13 @@ namespace Oxy::Ast {
         std::string ToString() const override {
             return object->ToString() + "." + memberName;
         }
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetObject() const { return object; }
+        [[nodiscard]] const std::string& GetMemberName() const { return memberName; }
+
     private:
         Expression* object;
         std::string memberName;

@@ -13,6 +13,11 @@ namespace Oxy::Ast {
             return expression->ToString() + ";";
         }
 
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetExpression() const { return expression; }
     private:
         Expression* expression;
     };

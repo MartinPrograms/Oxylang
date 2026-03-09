@@ -151,7 +151,7 @@ namespace Oxy {
     public:
         Type(LiteralType literalType, long count = 0, Type *nestedType = nullptr, std::string identifier = "") : literalType(literalType), count(count), nestedType(nestedType), identifier(std::move(identifier)) {}
 
-        std::string ToString() const {
+        virtual std::string ToString() const {
             if (literalType == LiteralType::UserDefined) {
                 return identifier;
             }
@@ -166,6 +166,12 @@ namespace Oxy {
             }
             return result;
         }
+
+        [[nodiscard]] LiteralType GetLiteralType() const { return literalType; }
+        [[nodiscard]] long GetCount() const { return count; }
+        [[nodiscard]] Type* GetNestedType() const { return nestedType; }
+        [[nodiscard]] const std::string& GetIdentifier() const { return identifier; }
+
     private:
         LiteralType literalType;
         long count; // For array types, this is the number of elements. For other types, it can be ignored or set to 0.

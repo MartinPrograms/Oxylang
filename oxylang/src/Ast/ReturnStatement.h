@@ -17,6 +17,13 @@ namespace Oxy::Ast {
                 return "return;";
             }
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetValue() const { return value; }
+
     private:
         Expression* value;
     };

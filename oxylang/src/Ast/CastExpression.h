@@ -13,6 +13,13 @@ namespace Oxy::Ast {
         std::string ToString() const override {
             return "cast<" + targetType->ToString() + ">(" + operand->ToString() + ")";
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetOperand() const { return operand; }
+        [[nodiscard]] Type* GetTargetType() const { return targetType; }
     private:
         Expression* operand;
         Type* targetType;

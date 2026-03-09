@@ -16,6 +16,12 @@ namespace Oxy::Ast {
             return "import \"" + moduleName + "\" as " + alias + ";";
         }
 
+        [[nodiscard]] const std::string& GetModuleName() const { return moduleName; }
+        [[nodiscard]] const std::string& GetAlias() const { return alias; }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
     private:
         std::string moduleName;
         std::string alias;

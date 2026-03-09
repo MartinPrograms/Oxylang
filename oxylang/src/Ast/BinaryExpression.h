@@ -17,6 +17,10 @@ namespace Oxy::Ast {
         Expression *GetLeft() const { return left; }
         Operator GetOperator() const { return op; }
         Expression *GetRight() const { return right; }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
     private:
         Expression *left;
         Operator op;

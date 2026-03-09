@@ -16,6 +16,10 @@ namespace Oxy::Ast {
         }
 
         Expression* GetInner() const { return inner; }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
     private:
         Expression* inner;
     };

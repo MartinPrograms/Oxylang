@@ -13,6 +13,13 @@ namespace Oxy::Ast {
         std::string ToString() const override {
             return left->ToString() + " = " + right->ToString();
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetLeft() const { return left; }
+        [[nodiscard]] Expression* GetRight() const { return right; }
     private:
         Expression *left;
         Expression *right;

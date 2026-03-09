@@ -13,6 +13,12 @@ namespace Oxy::Ast {
         std::string ToString() const override {
             return "addr(" + operand->ToString() + ")";
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetOperand() const { return operand; }
     private:
         Expression* operand;
     };
@@ -26,6 +32,11 @@ namespace Oxy::Ast {
             return "deref(" + operand->ToString() + ")";
         }
 
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetOperand() const { return operand; }
     private:
         Expression* operand;
     };

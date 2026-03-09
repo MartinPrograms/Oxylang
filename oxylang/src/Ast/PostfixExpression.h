@@ -13,6 +13,14 @@ namespace Oxy::Ast {
         std::string ToString() const override {
             return "(" + operand->ToString() + OperatorToString.at(op) + ")";
         }
+
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetOperand() const { return operand; }
+        [[nodiscard]] Operator GetOperator() const { return op; }
     private:
         Expression* operand;
         Operator op; // This should only be ++ or --

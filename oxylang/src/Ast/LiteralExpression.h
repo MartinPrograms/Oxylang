@@ -34,6 +34,10 @@ namespace Oxy::Ast {
                     return "Unknown literal type";
             }
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
     private:
         LiteralType type;
         std::variant<uint64_t, double, std::string, char> value;

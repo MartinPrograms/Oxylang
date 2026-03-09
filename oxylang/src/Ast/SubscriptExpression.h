@@ -13,6 +13,13 @@ namespace Oxy::Ast {
         std::string ToString() const override {
             return array->ToString() + "[" + index->ToString() + "]";
         }
+
+        void Accept(Visitor* visitor) override {
+            visitor->Visit(this);
+        }
+
+        [[nodiscard]] Expression* GetArray() const { return array; }
+        [[nodiscard]] Expression* GetIndex() const { return index; }
     private:
         Expression* array;
         Expression* index;
