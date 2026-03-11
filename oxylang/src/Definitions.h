@@ -128,7 +128,9 @@ namespace Oxy {
         Void,
         Undefined,
         Pointer,
-        UserDefined
+        UserDefined,
+        Function,
+        TypeOf
     };
 
     inline std::map<LiteralType, std::string> LiteralToString = {
@@ -144,12 +146,14 @@ namespace Oxy {
         {LiteralType::F64, "f64"},
         {LiteralType::Void, "void"},
         {LiteralType::Pointer, "ptr"},
-        {LiteralType::UserDefined, "user_defined"}
+        {LiteralType::UserDefined, "user_defined"},
+        {LiteralType::Function, "function"},
+        {LiteralType::TypeOf, "typeof"}
     };
 
     class Type {
     public:
-        Type(LiteralType literalType, long count = 0, Type *nestedType = nullptr, std::string identifier = "") : literalType(literalType), count(count), nestedType(nestedType), identifier(std::move(identifier)) {}
+        Type(LiteralType literalType, long count = 0, Type * nestedType = {}, std::string identifier = "") : literalType(literalType), count(count), nestedType(nestedType), identifier(std::move(identifier)) {}
 
         virtual std::string ToString() const {
             if (literalType == LiteralType::UserDefined) {
@@ -171,6 +175,31 @@ namespace Oxy {
         [[nodiscard]] long GetCount() const { return count; }
         [[nodiscard]] Type* GetNestedType() const { return nestedType; }
         [[nodiscard]] const std::string& GetIdentifier() const { return identifier; }
+
+        // Override the C++ is equal operator to compare types based on their literal type, count, nested type and identifier.
+        bool operator==(const Type& other) const {
+            if (literalType != other.literalType) {
+                return false;
+            }
+
+            if (count != other.count) {
+                return false;
+            }
+
+            if (nestedType && other.nestedType) {
+                if (!(*nestedType == *other.nestedType)) {
+                    return false;
+                }
+            } else if (nestedType || other.nestedType) {
+                return false; // One has a nested type and the other doesn't
+            }
+
+            if (literalType == LiteralType::UserDefined) {
+                return identifier == other.identifier;
+            }
+
+            return true;
+        }
 
     private:
         LiteralType literalType;

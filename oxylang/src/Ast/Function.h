@@ -6,12 +6,20 @@
 #include <utility>
 #include <vector>
 #include "../Definitions.h"
+#include "../FunctionType.h"
 
 namespace Oxy::Ast {
     class Function : public Node {
     public:
         Function(std::string name, std::vector<VariableDeclaration *> parameters, bool isVariadic, std::vector<Attribute*> attributes, Type *returnType, std::vector<Node *> body, int line, int column)
-            : Node(line, column), name(std::move(name)), parameters(std::move(parameters)), isVariadic(isVariadic), attributes(std::move(attributes)), returnType(returnType), body(std::move(body)) {}
+            : Node(line, column), name(std::move(name)), parameters(std::move(parameters)), isVariadic(isVariadic), attributes(std::move(attributes)), returnType(returnType), body(std::move(body)) {
+
+            std::vector<Type*> paramTypes;
+            for (const auto* param : this->parameters) {
+                paramTypes.push_back(param->GetType());
+            }
+            functionType = new FunctionType(paramTypes, returnType, isVariadic);
+        }
 
         std::string ToString() const override {
             std::string result = "fn " + name + "(";
@@ -56,10 +64,12 @@ namespace Oxy::Ast {
         [[nodiscard]] const std::vector<Attribute*>& GetAttributes() const { return attributes; }
         [[nodiscard]] Type* GetReturnType() const { return returnType; }
         [[nodiscard]] const std::vector<Node*>& GetBody() const { return body; }
+        [[nodiscard]] FunctionType* GetFunctionType() const { return functionType; }
 
         void Accept(Visitor* visitor) override {
             visitor->Visit(this);
         }
+
     private:
         std::string name;
         std::vector<VariableDeclaration *> parameters;
@@ -67,6 +77,7 @@ namespace Oxy::Ast {
         std::vector<Attribute *> attributes;
         Type *returnType;
         std::vector<Node *> body;
+        FunctionType *functionType;
     };
 }
 

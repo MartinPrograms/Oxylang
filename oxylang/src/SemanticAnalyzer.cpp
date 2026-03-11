@@ -29,7 +29,7 @@ namespace Oxy {
 
         // We prescan & add the function signatures to the global scope to allow for recursion and non linear function definitions.
         for (const auto& func : root->GetFunctions()) {
-            AddSymbol({func->GetName(), func->GetReturnType(), Symbol::Kind::Function, func->GetLine(), func->GetColumn()});
+            AddSymbol({func->GetName(), func->GetFunctionType(), Symbol::Kind::Function, func->GetLine(), func->GetColumn()});
         }
 
         for (const auto& func : root->GetFunctions()) {
@@ -101,12 +101,16 @@ namespace Oxy {
     }
 
     void SemanticAnalyzer::Visit(Ast::Attribute *attribute) {
+
     }
 
     void SemanticAnalyzer::Visit(Ast::LiteralExpression *literalExpression) {
+
     }
 
     void SemanticAnalyzer::Visit(Ast::AssignmentExpression *assignmentExpression) {
+        assignmentExpression->GetRight()->Accept(this);
+
         // Check if the left hand side is an identifier.
         auto *identifierExpression = dynamic_cast<Ast::IdentifierExpression *>(assignmentExpression->GetLeft());
         if (identifierExpression) {
@@ -118,6 +122,52 @@ namespace Oxy {
         auto *subscriptExpression = dynamic_cast<Ast::SubscriptExpression *>(assignmentExpression->GetLeft());
         if (subscriptExpression) {
             subscriptExpression->Accept(this);
+            auto idx = subscriptExpression->GetIndex();
+
+            if (auto *idxLiteral = dynamic_cast<Ast::LiteralExpression *>(idx)) {
+                auto type = idxLiteral->GetLiteralType();
+                if (type != LiteralType::Int &&
+                    type != LiteralType::U8 &&
+                    type != LiteralType::U16 &&
+                    type != LiteralType::U32 &&
+                    type != LiteralType::U64 &&
+                    type != LiteralType::I8 &&
+                    type != LiteralType::I16 &&
+                    type != LiteralType::I32 &&
+                    type != LiteralType::I64) {
+                    errors.push_back({"Array index must be of type int", "", idx->GetLine(), idx->GetColumn()});
+                }
+
+                auto value = std::get<uint64_t>(idxLiteral->GetValue());
+
+                auto arrayType = ResolveExpressionType(subscriptExpression->GetArray());
+                if (value >= (uint64_t)arrayType->GetCount()) {
+                    errors.push_back({"Array index is out of bounds (" + std::to_string(value) + " >= " + std::to_string(arrayType->GetCount()) + ")", "", idx->GetLine(), idx->GetColumn()});
+                }
+            }
+            else if (auto *idxUnary = dynamic_cast<Ast::UnaryExpression *>(idx)) {
+                if (idxUnary->GetOperator() == Operator::Subtract) {
+                    if (auto *idxUnaryLiteral = dynamic_cast<Ast::LiteralExpression *>(idxUnary->GetOperand())) {
+                        errors.push_back({"Array index cannot be negative", "", idx->GetLine(), idx->GetColumn()});
+                    }
+                }
+            }
+            else {
+                auto idxType = ResolveExpressionType(idx);
+                if (idxType) {
+                    if (idxType->GetLiteralType() != LiteralType::Int &&
+                        idxType->GetLiteralType() != LiteralType::U8 &&
+                        idxType->GetLiteralType() != LiteralType::U16 &&
+                        idxType->GetLiteralType() != LiteralType::U32 &&
+                        idxType->GetLiteralType() != LiteralType::U64 &&
+                        idxType->GetLiteralType() != LiteralType::I8 &&
+                        idxType->GetLiteralType() != LiteralType::I16 &&
+                        idxType->GetLiteralType() != LiteralType::I32 &&
+                        idxType->GetLiteralType() != LiteralType::I64) {
+                        errors.push_back({"Array index must be of type int, but got " + idxType->ToString(), "", idx->GetLine(), idx->GetColumn()});
+                    }
+                }
+            }
         }
 
         auto *memberAccessExpression = dynamic_cast<Ast::MemberAccessExpression *>(assignmentExpression->GetLeft());
@@ -160,7 +210,7 @@ namespace Oxy {
         }
 
         auto expressionType = expression ? ResolveExpressionType(expression) : nullptr;
-        auto expectedReturnType = ResolveSymbol(currentFunction->GetName())->type;
+        auto expectedReturnType = currentFunction ? currentFunction->GetFunctionType()->GetReturnType() : nullptr;
 
         if (!expectedReturnType) {
             errors.push_back({"Could not resolve return type of current function", "", returnStatement->GetLine(), returnStatement->GetColumn()});
@@ -180,6 +230,11 @@ namespace Oxy {
     }
 
     void SemanticAnalyzer::Visit(Ast::BinaryExpression *binaryExpression) {
+        if (binaryExpression->GetOperator() == Operator::Assignment) {
+            errors.push_back({"Assignment operator should have been handled as an AssignmentExpression, not a BinaryExpression", "", binaryExpression->GetLine(), binaryExpression->GetColumn()});
+            return;
+        }
+
         auto left = binaryExpression->GetLeft();
         auto right = binaryExpression->GetRight();
         left->Accept(this);
@@ -410,7 +465,8 @@ namespace Oxy {
             auto* callee = dynamic_cast<Ast::IdentifierExpression*>(call->GetCallee());
             if (callee) {
                 auto* sym = ResolveSymbol(callee->ToString());
-                return sym ? sym->type : nullptr;
+                auto *funcType = dynamic_cast<FunctionType*>(sym ? sym->type : nullptr);
+                return funcType ? funcType->GetReturnType() : nullptr;
             }
         }
 
@@ -442,21 +498,12 @@ namespace Oxy {
     }
 
     bool SemanticAnalyzer::TypesMatch(Type *a, Type *b) {
-        if (a->GetLiteralType() != b->GetLiteralType()) {
+        if (a == nullptr || b == nullptr) {
             return false;
         }
 
-        if (a->GetLiteralType() == LiteralType::Pointer && b->GetLiteralType() == LiteralType::Pointer) {
-            auto* aPointed = a->GetNestedType();
-            auto* bPointed = b->GetNestedType();
-            if (!aPointed || !bPointed) {
-                return false; // If either pointed type is null, we can't say they match.
-            }
-            return TypesMatch(aPointed, bPointed);
-        }
-
-        if (a->GetLiteralType() == LiteralType::UserDefined) {
-            return a->GetIdentifier() == b->GetIdentifier();
+        if (*a != *b) {
+            return false;
         }
 
         return true;

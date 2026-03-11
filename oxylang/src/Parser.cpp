@@ -3,6 +3,8 @@
 #include <fmt/format.h>
 #include <utility>
 #include "BodyParser.h"
+#include "FunctionType.h"
+#include "TypeList.h"
 
 namespace Oxy {
     Ast::Root Parser::Parse() {
@@ -40,6 +42,7 @@ namespace Oxy {
     Type * Parser::parseType() {
         // Types can be nested identifiers with <T> generics, like "Option<i32>", "Result<String, Error>", etc.
         // There are 2 exceptions to this: ptr<T> and array<T, N>, which are keywords.
+        // There is also a function type, which goes like "fn(arg, arg2) -> returnType"
 
         // First check for the ptr and array keywords
         if (Match(Token::Kind::Keyword).kind == Token::Kind::Keyword) {
@@ -88,6 +91,67 @@ namespace Oxy {
 
                 return new Type(LiteralType::Pointer, std::get<uint64_t>(sizeToken.value), nestedType);
             }
+            else if (std::get<Keyword>(kwToken.value) == Keyword::Fn) {
+                Advance(); // consume 'fn'
+
+                if (Peek().kind != Token::Kind::Syntax || std::get<Syntax>(Peek().value) != Syntax::LeftParen) {
+                    errors.push_back({fmt::format("Expected '(' after 'fn' in function type declaration"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+
+                Advance(); // consume '('
+
+                std::vector<Type *> paramTypes;
+                bool isVariadic = false;
+                if (Peek().kind != Token::Kind::Syntax || std::get<Syntax>(Peek().value) != Syntax::RightParen) {
+                    while (true) {
+                        if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::Variadic) {
+                            isVariadic = true;
+                            Advance(); // consume '...'
+                            break;
+                        }
+
+                        Type* paramType = parseType();
+                        if (!paramType) {
+                            errors.push_back({fmt::format("Expected type in function parameter list"), "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+                        paramTypes.push_back(paramType);
+
+                        if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::Comma) {
+                            Advance(); // consume ','
+                        } else if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::RightParen) {
+                            break;
+                        } else {
+                            errors.push_back({fmt::format("Expected ',' or ')' in function parameter list"), "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+                    }
+                }
+
+                if (Peek().kind != Token::Kind::Syntax || std::get<Syntax>(Peek().value) != Syntax::RightParen) {
+                    errors.push_back({fmt::format("Expected ')' after function parameter list"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+
+                Advance(); // consume ')'
+                Type* returnType = nullptr;
+
+                if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::Arrow) {
+                    Advance(); // consume '->'
+                    returnType = parseType();
+                    if (!returnType) {
+                        errors.push_back({fmt::format("Expected return type in function type declaration"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                }
+                else {
+                    // If there is no return type, then it's implicitly 'void'
+                    returnType = new Type(LiteralType::Void);
+                }
+
+                return new FunctionType(std::move(paramTypes), returnType, isVariadic);
+            }
         }
 
         // Otherwise, it is either a TypeName or an Identifier (for user defined types)
@@ -100,18 +164,25 @@ namespace Oxy {
             Advance(); // consume the identifier
             std::string typeName = std::get<std::string>(typeNameToken.value);
             if (consumeOpeningGeneric()) {
-                Type *nestedType = parseType();
-                if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::GreaterThan) {
-                    errors.push_back({fmt::format("Expected '>' after nested type in generic type declaration"), "", Peek().line, Peek().column});
-                    return nullptr;
+                std::vector<Type *> genericArgs;
+                while (true) {
+                    Type* genericArg = parseType();
+                    if (!genericArg) {
+                        errors.push_back({fmt::format("Expected type in generic type declaration"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    genericArgs.push_back(genericArg);
+                    if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::Comma) {
+                        Advance(); // consume ','
+                    } else if (consumeClosingGeneric()) {
+                        break;
+                    } else {
+                        errors.push_back({fmt::format("Expected ',' or '>' in generic type declaration"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
                 }
 
-                if (!consumeClosingGeneric()) {
-                    errors.push_back({fmt::format("Expected '>' after nested type in generic type declaration"), "", Peek().line, Peek().column});
-                    return nullptr;
-                }
-
-                return new Type(LiteralType::UserDefined, 0, nestedType, typeName);
+                return new TypeList(typeName, std::move(genericArgs));
             } else {
                 return new Type(LiteralType::UserDefined, 0, nullptr, typeName);
             }
@@ -358,6 +429,14 @@ namespace Oxy {
             }
 
             if (Match(Token::Kind::Identifier).kind != Token::Kind::Identifier) {
+                if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::LeftParen) {
+                    Advance(); // This is a function type, not a function declaration, so we should not report an error here.
+                    for (auto* attr : attributes) {
+                        delete attr;
+                    }
+                    continue;
+                }
+
                 errors.push_back({fmt::format("Expected function name after 'fn'"), "", Peek().line, Peek().column});
                 for (auto* attr : attributes) {
                     delete attr;

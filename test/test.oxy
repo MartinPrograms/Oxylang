@@ -1,44 +1,205 @@
-let a = 0;
+// ─── TYPE INFERENCE & LITERAL SUFFIXES ────────────────────────────────────────
+fn test_literal_inference() -> void {
+    let a = 0;          // i32
+    let b = 0.0;        // f64
+    let c = 0.0f;       // f32
+    let d = 0u8;        // u8
+    let e = 0xFFi16;   // i16 (hex with suffix)
+    let f = 0b1010u64;  // u64 (binary with suffix)
+    let g = true;       // u8 (per spec: bool handled as u8)
+    let h = false;      // u8
 
-@extern @symbol("puts") fn puts(s: ptr<u8>) -> i32;
-
-fn test_bitwise_ambiguity() -> void {
-    let a: i32 = 0xFF;
-    let b: i32 = 0x0F;
-    let c: i32 = 0xF0;
-
-    // let x = a & b | c;       // ERROR: ambiguous, needs (a & b) | c
-    // let y = a | b ^ c;       // ERROR: ambiguous, needs (a | b) ^ c
-    // let z = a << 2 & b;      // ERROR: ambiguous, needs (a << 2) & b
-
-    let ok1 = (a & b) | c;   // OK
-    let ok2 = a | (b ^ c);   // OK
+    // let bad1 = 999999999999; // ERROR? - i32 overflow, spec says default is i32
+    // let bad2 = 0.0 + 0.0f;  // ERROR: f64 + f32, no implicit promotion
 }
 
-fn test_array_bounds() -> void {
-    let arr: array<i32, 4>;
 
-    arr[3] = 10;    // OK  - last valid index
-    arr[4] = 20;    // ERROR: index 4 out of bounds for array<i32, 4>
-    arr[-1] = 30;   // ERROR: negative index
+// ─── NO IMPLICIT NUMERIC PROMOTION ────────────────────────────────────────────
 
-    let i: i32 = 2;
-    arr[i] = 99;    // OK (runtime, bounds check inserted by compiler per spec)
+fn test_no_implicit_promotion() -> void {
+    let a: i32 = 10;
+    let b: i64 = 20;
+    let c: f32 = 1.0f;
+    let d: f64 = 2.0;
+
+    // let bad1: i64 = a;           // ERROR: i32 not assignable to i64 without cast
+    // let bad2 = a + b;            // ERROR: i32 + i64, no implicit promotion
+    // let bad3 = c + d;            // ERROR: f32 + f64
+    // let bad4: f64 = c;           // ERROR: f32 not assignable to f64
+
+    let ok1: i64 = cast<i64>(a);
+    let ok2 = cast<i64>(a) + b;
+    let ok3 = cast<f64>(c) + d;
 }
 
-fn test_null_usage() -> void {
-    let a: i32 = null;      // ERROR: null is ptr<void>, not i32
-    let b: f32 = null;      // ERROR: null is ptr<void>, not f32
-    let c: u8 = null;       // ERROR: null is ptr<void>, not u8
 
-    let ok1: ptr<i32> = cast<ptr<i32>>(null);       // OK
-    let ok2: ptr<void> = null;      // OK
+// ─── VOID TYPE MISUSE ─────────────────────────────────────────────────────────
+
+fn returns_void() -> void { return; }
+
+fn test_void_misuse() -> void {
+    // let a: void = returns_void();    // ERROR: void not a valid variable type
+    // let b: array<void, 4>;           // ERROR: void not valid here
+    // let c: ptr<void> = null;         // OK: ptr<void> is explicitly allowed
+    // let d: ptr<void> = allocate<u8>(1); // OK? cast may be needed - ptr<u8> -> ptr<void>
+
+    let ok: ptr<void> = null;
+
+    // return returns_void();           // ERROR (in non-void fn): but this fn is void,
+                                        // actually the spec doesn't clarify if return void_call() is valid
 }
 
-@entry
-fn main() -> u8 {
-    let s = "Hello, World!\0";
-    puts(s);
-    a = 42;
-    return 0u8;
+
+// ─── ADDR / DEREF RULES ───────────────────────────────────────────────────────
+
+fn test_addr_deref() -> void {
+    let x: i32 = 42;
+    let p: ptr<i32> = addr(x);
+    let v: i32 = deref(p);
+
+    // addr of a literal should be an error per spec
+    // let bad1 = addr(42);         // ERROR: cannot take address of a literal
+    // let bad2 = addr(1 + 2);      // ERROR: cannot take address of an expression result
+
+    let null_ptr: ptr<i32> = cast<ptr<i32>>(null);
+    // deref(null_ptr);             // compiles, but segfaults at runtime - spec confirms this
+
+    // pointer arithmetic
+    let p2 = p + 1;                // ptr<i32>: advances by sizeof(i32) bytes
+    let vp: ptr<void> = cast<ptr<void>>(p);
+    let vp2 = vp + 1;              // ptr<void>: advances by 1 byte (per spec)
+}
+
+
+// ─── FUNCTION OVERLOADING ─────────────────────────────────────────────────────
+
+fn overloaded(x: i32) -> i32 { return x; }
+fn overloaded(x: f64) -> f64 { return x; }
+fn overloaded(x: i32, y: i32) -> i32 { return x + y; }
+
+fn test_overload_resolution() -> void {
+    let a = overloaded(1);          // resolves to i32 overload
+    let b = overloaded(1.0);        // resolves to f64 overload
+    let c = overloaded(1, 2);       // resolves to 2-arg overload
+
+    // let bad = overloaded(1u8);   // ERROR or OK? u8 is not i32, no implicit promotion.
+                                    // likely ERROR: no matching overload
+}
+
+
+// ─── FUNCTION POINTERS ────────────────────────────────────────────────────────
+
+fn square(x: i32) -> i32 { return x * x; }
+
+fn test_function_pointers() -> void {
+    let pf: ptr<fn(i32) -> i32> = addr(square);
+    let result = pf(5);             // sugar for (deref(pf))(5)
+
+    // let bad1: ptr<fn(i64) -> i32> = addr(square);  // ERROR: type mismatch
+    // let bad2: fn(i32) -> i32 = square;             // ERROR: fn type is not ptr<fn>
+
+    // array of function pointers
+    let fns: array<ptr<fn(i32) -> i32>, 3>;
+    fns[0] = addr(square);
+    // fns[0](5);  // is this valid? array element is ptr<fn...>, calling it should work
+}
+
+
+// ─── COMPILE-TIME OPERATORS ───────────────────────────────────────────────────
+
+struct Vec3 { x: f32; y: f32; z: f32; }
+
+fn test_compiletime_ops() -> void {
+    let sz_i32   = sizeof<i32>();       // 4
+    let sz_vec3  = sizeof<Vec3>();      // 12 (assuming no padding)
+    let al_f64   = alignof<f64>();      // 8
+    let al_vec3  = alignof<Vec3>();     // 4 (f32 alignment)
+
+    let x: i32 = 10;
+    // typeof returns a type, not a runtime value.
+    // how typeof is used is underspecified - can you assign it? pass it?
+    // let t = typeof(x);               // what is the type of t here?
+    // presumably only useful in generic contexts or sizeof<typeof(x)>()
+    let sz_x = sizeof<typeof(x)>();     // should equal sizeof<i32>() = 4
+
+    // let bad = sizeof<void>();        // ERROR? void has no size - spec doesn't clarify
+}
+
+
+// ─── STRUCT MEMBER ACCESS & GENERICS ──────────────────────────────────────────
+
+struct Pair<A, B> { first: A; second: B; }
+
+fn test_struct_generic() -> void {
+    let p: Pair<i32, f64>;
+    p.first = 1;
+    p.second = 2.0;
+
+    // let bad: Pair<void, i32>;        // ERROR: void not a valid type argument
+
+    let pp: ptr<Pair<i32, f64>> = addr(p);
+    // member access through pointer - spec doesn't define -> syntax.
+    // presumably: deref(pp).first
+    let f = deref(pp).first;
+}
+
+
+// ─── OPERATOR PRECEDENCE EDGE CASES ───────────────────────────────────────────
+
+fn test_precedence() -> void {
+    let a: i32 = 1;
+    let b: i32 = 2;
+    let c: i32 = 3;
+
+    // comparison vs logical: spec says logical (&&,||) is LOWER than comparison.
+    // so: a < b && b < c  =>  (a < b) && (b < c) - no parens needed, unambiguous
+    let ok1 = a < b && b < c;
+
+    // assignment is lowest, right to left
+    let x: i32 = 0;
+    let y: i32 = 0;
+}
+
+
+// ─── EXTENSION METHODS ────────────────────────────────────────────────────────
+
+struct Counter { value: i32; }
+
+fn increment(this: Counter) -> void {
+    this.value = this.value + 1;  // NOTE: 'this' is by value here, not ptr.
+                                   // mutation won't escape. Spec doesn't mention ref semantics.
+}
+
+fn increment(this: ptr<Counter>) -> void {
+    deref(this).value = deref(this).value + 1;  // mutates the original
+}
+
+fn test_extension_methods() -> void {
+    let c: Counter;
+    c.value = 0;
+
+    c.increment();          // calls fn increment(this: Counter) - by value, no effect on c
+    addr(c).increment();    // calls fn increment(this: ptr<Counter>) - mutates c
+
+    // name mangling: becomes Counterincrement(c) and Counterincrement(addr(c))
+    // overload resolved by this type
+}
+
+
+// ─── RETURN TYPE CHECKING ─────────────────────────────────────────────────────
+
+fn test_return_types() -> i32 {
+    // return;              // ERROR: void return in non-void function
+    // return 1.0;          // ERROR: f64 not assignable to i32 (no implicit promotion)
+    // return 1u8;          // ERROR: u8 not assignable to i32
+    return 1;               // OK
+}
+
+fn test_missing_return() -> i32 {
+    let x: i32 = 5;
+    if (x > 0) {
+        return 1;
+    }
+    // ERROR? no return on all paths - does the compiler enforce this?
+    // spec doesn't explicitly state exhaustive return checking.
 }
