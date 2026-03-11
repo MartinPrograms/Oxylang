@@ -104,10 +104,11 @@ fn main() -> u8 {
     let title: ptr<u8> = "Hello World";
 
     InitWindow(width, height, title);
-    SetTargetFPS(60);
+    SetTargetFPS(0); // Unlimited FPS
 
     let x = 400;
     let y = 225;
+    let counter = 0;
 
     let key_a = 65; // ASCII code for 'A'
     let key_d = 68; // ASCII code for 'D'
