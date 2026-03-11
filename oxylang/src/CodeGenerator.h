@@ -61,6 +61,7 @@ namespace Oxy {
         void Visit(Ast::ImportStatement *importStatement) override;
         void Visit(Ast::ContinueStatement *continueStatement) override;
         void Visit(Type *type) override;
+        void Visit(Ast::DereferenceAssignmentStatement *dereferenceAssignmentStatement) override;
 
     private:
         SemanticAnalyzer::AnalysisResult result;
@@ -149,7 +150,7 @@ namespace Oxy {
             if (!size) {
                 throw std::runtime_error("Unsupported type for sizeof");
             }
-            return Qbe::CreateLiteral(size);
+            return Qbe::CreateLiteral((int64_t)size);
         }
 
         std::string GetLabel(Ast::Node *node) {

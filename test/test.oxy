@@ -1,153 +1,44 @@
-/*import "std/io" as io;
+let a = 0;
 
-// We are importing raylib here, which is a C library.
-@extern @symbol("InitWindow") fn InitWindow(width: i32, height: i32, title: ptr<u8>) -> void;
-@extern @symbol("SetTargetFPS") fn SetTargetFPS(fps: i32) -> void;
-@extern @symbol("WindowShouldClose") fn WindowShouldClose() -> u8; // bool (u8)
-@extern @symbol("CloseWindow") fn CloseWindow() -> void;
+@extern @symbol("puts") fn puts(s: ptr<u8>) -> i32;
 
-// cstd functions
-@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
+fn test_bitwise_ambiguity() -> void {
+    let a: i32 = 0xFF;
+    let b: i32 = 0x0F;
+    let c: i32 = 0xF0;
 
-let test: u8 = 42;
+    // let x = a & b | c;       // ERROR: ambiguous, needs (a & b) | c
+    // let y = a | b ^ c;       // ERROR: ambiguous, needs (a | b) ^ c
+    // let z = a << 2 & b;      // ERROR: ambiguous, needs (a << 2) & b
+
+    let ok1 = (a & b) | c;   // OK
+    let ok2 = a | (b ^ c);   // OK
+}
+
+fn test_array_bounds() -> void {
+    let arr: array<i32, 4>;
+
+    arr[3] = 10;    // OK  - last valid index
+    arr[4] = 20;    // ERROR: index 4 out of bounds for array<i32, 4>
+    arr[-1] = 30;   // ERROR: negative index
+
+    let i: i32 = 2;
+    arr[i] = 99;    // OK (runtime, bounds check inserted by compiler per spec)
+}
+
+fn test_null_usage() -> void {
+    let a: i32 = null;      // ERROR: null is ptr<void>, not i32
+    let b: f32 = null;      // ERROR: null is ptr<void>, not f32
+    let c: u8 = null;       // ERROR: null is ptr<void>, not u8
+
+    let ok1: ptr<i32> = cast<ptr<i32>>(null);       // OK
+    let ok2: ptr<void> = null;      // OK
+}
 
 @entry
 fn main() -> u8 {
-    let a = 1;
-    let b = 2;
-    let c: ptr<i32> = addr(a);
-    let d: ptr<i32> = addr(b);
-    let e: i32 = deref(c) + deref(d) * 2;
-
-    return cast<u8>(test);
-}
-
-fn raylib_example() -> u8 {
-    let width: i32 = 800;
-    let height: i32 = 450;
-    let title: ptr<u8> = "Hello World"; // The null terminator is automatically added.
-
-    InitWindow(width, height, title);
-    SetTargetFPS(60);
-
-    io.println("Window initialized!");
-
-    while (WindowShouldClose() == 0) {
-        // Game loop would go here
-        io.println("Running...");
-    }
-
-    io.println("Closing window...");
-
-    CloseWindow();
-    return 0;
-}*/
-/*
-@entry
-fn main() -> u8 {
-    let r5 = 10;
-    r5 = 5;
-    if (r5 > 0) {
-        let r6 = 20;
-        r6 = 15;
-    }
-    // let r7 = r6 would cause out of scope error, as r6 is only defined in the if block.
-
-    for (let i = 0; i < 5; i++) {
-        let r9 = i * 2;
-        r9 = r9 + 1;
-    }
-
-    let a = test_function();
-    return cast<u8>(a);
-}
-
-struct test_struct {
-    a: i32;
-    b: i32;
-}
-
-let a = 10;
-let b: i32 = 20;
-*/
-/*
-@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
-
-@entry
-fn start(argc: i32, argv: ptr<ptr<u8>>) -> u8 {
-    // Log out all arguments passed to the program.
-    for (let i = 0; i < argc; i++) {
-        let arg: ptr<u8> = deref(argv + cast<i64>(i) * sizeof<ptr<u8>>());
-        printf("Argument %d: %s\n", i, arg);
-    }
-    printf("argc: %d\n", argc);
-
-    return 0;
-}*/
-
-@extern @symbol("InitWindow") fn InitWindow(width: i32, height: i32, title: ptr<u8>) -> void;
-@extern @symbol("SetTargetFPS") fn SetTargetFPS(fps: i32) -> void;
-@extern @symbol("WindowShouldClose") fn WindowShouldClose() -> u8; // bool (u8)
-@extern @symbol("CloseWindow") fn CloseWindow() -> void;
-@extern @symbol("BeginDrawing") fn BeginDrawing() -> void;
-@extern @symbol("EndDrawing") fn EndDrawing() -> void;
-@extern @symbol("ClearBackground") fn ClearBackground(color: i32) -> void;
-@extern @symbol("DrawText") fn DrawText(text: ptr<u8>, x: i32, y: i32, fontSize: i32, color: i32) -> void;
-@extern @symbol("GetFPS") fn GetFPS() -> i32;
-@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
-@extern @symbol("IsKeyDown") fn IsKeyDown(key: i32) -> u8; // bool (u8)
-
-@entry
-fn main() -> u8 {
-    let width: i32 = 800;
-    let height: i32 = 450;
-    let title: ptr<u8> = "Hello World";
-
-    InitWindow(width, height, title);
-    SetTargetFPS(0); // Unlimited FPS
-
-    let x = 400;
-    let y = 225;
-    let counter = 0;
-
-    let key_a = 65; // ASCII code for 'A'
-    let key_d = 68; // ASCII code for 'D'
-    let key_w = 87; // ASCII code for 'W'
-    let key_s = 83; // ASCII code for 'S'
-
-    while (true) {
-        if (WindowShouldClose() != 0) {
-            break;
-        }
-
-        BeginDrawing();
-        ClearBackground(0xFF000000); // opaque black
-        DrawText("Hello, Raylib!", x, y, 20, 0xFFFFFFFF); // white
-
-        let is_key_a_down = IsKeyDown(key_a) && 1; // Convert to 0 or 1
-        let is_key_d_down = IsKeyDown(key_d) && 1;
-        let is_key_w_down = IsKeyDown(key_w) && 1;
-        let is_key_s_down = IsKeyDown(key_s) && 1;
-
-        if (is_key_a_down != 0) {
-            x = x - 5;
-        }
-
-        if (is_key_d_down != 0) {
-            x = x + 5;
-        }
-
-        if (is_key_w_down != 0) {
-            y = y - 5;
-        }
-
-        if (is_key_s_down != 0) {
-            y = y + 5;
-        }
-
-        EndDrawing();
-    }
-
-    CloseWindow();
-    return 0;
+    let s = "Hello, World!\0";
+    puts(s);
+    a = 42;
+    return 0u8;
 }

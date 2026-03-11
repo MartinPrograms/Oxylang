@@ -96,12 +96,14 @@ namespace Oxy {
         void Visit(Ast::DereferenceExpression *dereferenceExpression) override;
         void Visit(Ast::FreeStatement *freeStatement) override;
         void Visit(Ast::ContinueStatement *continueStatement) override;
+        void Visit(Ast::DereferenceAssignmentStatement *dereferenceAssignmentStatement) override;
 
     private:
         std::vector<Error> errors = {};
         std::vector<Import> imports = {};
         Scope *globalScope = new Scope(nullptr);
         Scope *currentScope = globalScope;
+        Ast::Function *currentFunction = nullptr;
 
         void EnterScope() {
             Scope *newScope = new Scope(currentScope);
@@ -126,6 +128,7 @@ namespace Oxy {
         }
 
         Type *ResolveExpressionType(Ast::Expression *expression);
+        bool TypesMatch(Type *a, Type *b);
     };
 } // Oxy
 

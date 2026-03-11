@@ -39,6 +39,7 @@ namespace Oxy {
 
     void SemanticAnalyzer::Visit(Ast::Function *function) {
         EnterScope();
+        currentFunction = function;
 
         for (const auto& param : function->GetParameters()) {
             Visit(param);
@@ -75,6 +76,19 @@ namespace Oxy {
         }
 
         AddSymbol({name, type, Symbol::Kind::Variable, variableDeclaration->GetLine(), variableDeclaration->GetColumn()});
+
+        auto leftType = variableDeclaration->GetType();
+        auto rightType = initializer ? ResolveExpressionType(initializer) : nullptr;
+
+        if (!leftType && rightType) {
+            return;
+        }
+
+        if (leftType && rightType) {
+            if (!TypesMatch(leftType, rightType)) {
+                errors.push_back({"Type mismatch in variable declaration: declared type is " + leftType->ToString() + " but initializer is of type " + rightType->ToString(), "", variableDeclaration->GetLine(), variableDeclaration->GetColumn()});
+            }
+        }
     }
 
     void SemanticAnalyzer::Visit(Ast::StructDeclaration *structDeclaration) {
@@ -115,12 +129,53 @@ namespace Oxy {
         if (dereferenceExpression && dereferenceExpression->GetOperand()) {
             dereferenceExpression->Accept(this);
         }
+
+        auto leftType = ResolveExpressionType(assignmentExpression->GetLeft());
+        auto rightType = ResolveExpressionType(assignmentExpression->GetRight());
+
+        // we can allow for implicit left type, so if left type is not defined just set the type to the right type, but if the left type is defined and the right type is not defined, then it's an error.
+        if (!leftType && rightType) {
+            // This is an implicit variable declaration, so we add it to the current scope.
+            auto identifier = dynamic_cast<Ast::IdentifierExpression *>(assignmentExpression->GetLeft());
+            if (identifier) {
+                AddSymbol({identifier->ToString(), rightType, Symbol::Kind::Variable, identifier->GetLine(), identifier->GetColumn()});
+            } else {
+                errors.push_back({"Left hand side of assignment must be an identifier for implicit variable declaration", "", assignmentExpression->GetLine(), assignmentExpression->GetColumn()});
+            }
+        } else if (leftType && rightType) {
+            if (!TypesMatch(leftType, rightType)) {
+                errors.push_back({"Type mismatch in assignment: left is " + leftType->ToString() + " but right is " + rightType->ToString(), "", assignmentExpression->GetLine(), assignmentExpression->GetColumn()});
+            }
+        } else if (leftType && !rightType) {
+            errors.push_back({"Could not resolve type of right hand side of assignment", "", assignmentExpression->GetLine(), assignmentExpression->GetColumn()});
+        } else {
+            errors.push_back({"Could not resolve type of left hand side and right hand side of assignment", "", assignmentExpression->GetLine(), assignmentExpression->GetColumn()});
+        }
     }
 
     void SemanticAnalyzer::Visit(Ast::ReturnStatement *returnStatement) {
         auto expression = returnStatement->GetValue();
         if (expression) {
             expression->Accept(this);
+        }
+
+        auto expressionType = expression ? ResolveExpressionType(expression) : nullptr;
+        auto expectedReturnType = ResolveSymbol(currentFunction->GetName())->type;
+
+        if (!expectedReturnType) {
+            errors.push_back({"Could not resolve return type of current function", "", returnStatement->GetLine(), returnStatement->GetColumn()});
+            return;
+        }
+
+        if (!expressionType) {
+            if (expectedReturnType->ToString() != "void") {
+                errors.push_back({"Return statement has no value but function return type is " + expectedReturnType->ToString(), "", returnStatement->GetLine(), returnStatement->GetColumn()});
+            }
+            return;
+        }
+
+        if (!TypesMatch(expressionType, expectedReturnType)) {
+            errors.push_back({"Type mismatch in return statement: expected " + expectedReturnType->ToString() + " but got " + expressionType->ToString(), "", returnStatement->GetLine(), returnStatement->GetColumn()});
         }
     }
 
@@ -129,6 +184,20 @@ namespace Oxy {
         auto right = binaryExpression->GetRight();
         left->Accept(this);
         right->Accept(this);
+
+        auto typeLeft = ResolveExpressionType(left);
+        auto typeRight = ResolveExpressionType(right);
+
+        if (!typeLeft || !typeRight) {
+            errors.push_back({"Could not resolve type of binary expression", "", binaryExpression->GetLine(), binaryExpression->GetColumn()});
+            return;
+        }
+
+        if (TypesMatch(typeLeft, typeRight)) {
+            return;
+        }
+
+        errors.push_back({"Type mismatch in binary expression: left is " + typeLeft->ToString() + " but right is " + typeRight->ToString(), "", binaryExpression->GetLine(), binaryExpression->GetColumn()});
     }
 
     void SemanticAnalyzer::Visit(Ast::SizeOfExpression *sizeOfExpression) {
@@ -304,11 +373,19 @@ namespace Oxy {
     void SemanticAnalyzer::Visit(Ast::ContinueStatement *continueStatement) {
     }
 
-    Type * SemanticAnalyzer::ResolveExpressionType(Ast::Expression *expression) {
+    void SemanticAnalyzer::Visit(Ast::DereferenceAssignmentStatement *dereferenceAssignmentStatement) {
+
+    }
+
+    Type *SemanticAnalyzer::ResolveExpressionType(Ast::Expression *expression) {
         if (!expression) return nullptr;
 
-        if (auto* lit = dynamic_cast<Ast::LiteralExpression*>(expression))
+        if (auto* lit = dynamic_cast<Ast::LiteralExpression*>(expression)) {
+            if (lit->GetLiteralType() == LiteralType::Pointer && std::holds_alternative<uint64_t>(lit->GetValue()) && std::get<uint64_t>(lit->GetValue()) == 0) {
+                return new Type(LiteralType::Pointer, 0, new Type(LiteralType::Void));
+            }
             return new Type(lit->GetLiteralType());
+        }
 
         if (auto* ident = dynamic_cast<Ast::IdentifierExpression*>(expression)) {
             auto* sym = ResolveSymbol(ident->ToString());
@@ -341,9 +418,47 @@ namespace Oxy {
             return ResolveExpressionType(postfix->GetOperand());
 
         if (auto* subscript = dynamic_cast<Ast::SubscriptExpression*>(expression)) {
-            return ResolveExpressionType(subscript->GetArray());
+            auto type = ResolveExpressionType(subscript->GetArray());
+            if (type && type->GetLiteralType() == LiteralType::Pointer) {
+                return type->GetNestedType();
+            }
+        }
+
+        if (auto* addressOf = dynamic_cast<Ast::AddressOfExpression*>(expression)) {
+            auto* operandType = ResolveExpressionType(addressOf->GetOperand());
+            if (operandType) {
+                return new Type(LiteralType::Pointer, 0, operandType);
+            }
+        }
+
+        if (auto* dereference = dynamic_cast<Ast::DereferenceExpression*>(expression)) {
+            auto* operandType = ResolveExpressionType(dereference->GetOperand());
+            if (operandType && operandType->GetLiteralType() == LiteralType::Pointer) {
+                return operandType->GetNestedType();
+            }
         }
 
         return nullptr;
+    }
+
+    bool SemanticAnalyzer::TypesMatch(Type *a, Type *b) {
+        if (a->GetLiteralType() != b->GetLiteralType()) {
+            return false;
+        }
+
+        if (a->GetLiteralType() == LiteralType::Pointer && b->GetLiteralType() == LiteralType::Pointer) {
+            auto* aPointed = a->GetNestedType();
+            auto* bPointed = b->GetNestedType();
+            if (!aPointed || !bPointed) {
+                return false; // If either pointed type is null, we can't say they match.
+            }
+            return TypesMatch(aPointed, bPointed);
+        }
+
+        if (a->GetLiteralType() == LiteralType::UserDefined) {
+            return a->GetIdentifier() == b->GetIdentifier();
+        }
+
+        return true;
     }
 } // Oxy

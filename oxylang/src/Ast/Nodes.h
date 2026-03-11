@@ -27,6 +27,7 @@
 #include "WhileStatement.h"
 #include "ForStatement.h"
 #include "ImportStatement.h"
+#include "DereferenceAssignmentStatement.h"
 
 #include "Root.h"
 

@@ -29,7 +29,12 @@ namespace Oxy::Ast {
                     return std::to_string(std::get<double>(value)) + (LiteralToString[type]);
 
                 case LiteralType::Pointer:
-                    return "\"" + std::get<std::string>(value) + "\"";
+                    // value *can* be a string literal, or a null pointer (0)
+                    if (std::holds_alternative<std::string>(value)) {
+                        return "\"" + std::get<std::string>(value) + "\"";
+                    } else {
+                        return "null";
+                    }
                 default:
                     return "Unknown literal type";
             }

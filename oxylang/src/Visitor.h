@@ -35,6 +35,7 @@ namespace Oxy::Ast {
     class ForStatement;
     class ContinueStatement;
     class ImportStatement;
+    class DereferenceAssignmentStatement;
 }
 
 namespace Oxy {
@@ -75,6 +76,7 @@ namespace Oxy {
         virtual void Visit(Ast::ForStatement* forStatement) = 0;
         virtual void Visit(Ast::ImportStatement* importStatement) = 0;
         virtual void Visit(Ast::ContinueStatement* continueStatement) = 0;
+        virtual void Visit(Ast::DereferenceAssignmentStatement* dereferenceAssignmentStatement) = 0;
         virtual void Visit(Type* type) = 0;
     };
 }

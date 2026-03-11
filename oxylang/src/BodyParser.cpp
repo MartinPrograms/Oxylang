@@ -410,7 +410,7 @@ namespace Oxy {
     bool BodyParser::isStatementStart() {
         if (Match(Token::Kind::Keyword).kind == Token::Kind::Keyword) {
             auto kw = std::get<Keyword>(Match(Token::Kind::Keyword).value);
-            return kw == Keyword::Let || kw == Keyword::If || kw == Keyword::While || kw == Keyword::Return || kw == Keyword::Break || kw == Keyword::Continue || kw == Keyword::For;
+            return kw == Keyword::Let || kw == Keyword::If || kw == Keyword::While || kw == Keyword::Return || kw == Keyword::Break || kw == Keyword::Continue || kw == Keyword::For || kw == Keyword::Deref;
         }
 
         return Match(Token::Kind::Identifier).kind == Token::Kind::Identifier;
@@ -629,6 +629,42 @@ namespace Oxy {
                     return nullptr;
                 }
                 return new Ast::ContinueStatement(Peek().line, Peek().column);
+            }
+            else if (kw == Keyword::Deref) {
+                Advance(); // consume 'deref'
+                if (!expectSyntax(Syntax::LeftParen)) {
+                    errors->push_back({fmt::format("Expected '(' after 'deref' in dereference statement"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+                auto expr = parseExpression();
+                if (!expr) {
+                    errors->push_back({fmt::format("Expected expression in 'deref' statement"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+                if (!expectSyntax(Syntax::RightParen)) {
+                    errors->push_back({fmt::format("Expected ')' after expression in 'deref' statement"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+
+                // Now we expect an assignment, since "deref (expr) = value" is how we do pointer assignment in Oxylang.
+                if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::Assignment) {
+                    Advance(); // consume '='
+                    auto valueExpr = parseExpression();
+                    if (!valueExpr) {
+                        errors->push_back({fmt::format("Expected expression for value in 'deref' assignment statement"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    if (!expectSyntax(Syntax::Semicolon)) {
+                        errors->push_back({fmt::format("Expected ';' after 'deref' assignment statement"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+
+                    return new Ast::DereferenceAssignmentStatement(expr, valueExpr, Peek().line, Peek().column);
+                }
+                else {
+                    errors->push_back({fmt::format("Expected '=' after 'deref' expression in dereference assignment statement"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
             }
         }
         else if (Match(Token::Kind::Identifier).kind == Token::Kind::Identifier) {
