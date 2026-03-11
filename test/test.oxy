@@ -42,7 +42,7 @@ fn raylib_example() -> u8 {
     CloseWindow();
     return 0;
 }*/
-
+/*
 @entry
 fn main() -> u8 {
     let r5 = 10;
@@ -53,12 +53,13 @@ fn main() -> u8 {
     }
     // let r7 = r6 would cause out of scope error, as r6 is only defined in the if block.
 
-    for (let i = 0; i < 5; i = i + 1) {
+    for (let i = 0; i < 5; i++) {
         let r9 = i * 2;
         r9 = r9 + 1;
     }
 
-    return cast<u8>(test_function());
+    let a = test_function();
+    return cast<u8>(a);
 }
 
 struct test_struct {
@@ -66,9 +67,86 @@ struct test_struct {
     b: i32;
 }
 
-fn test_function() -> i32 {
-    let r10 = 100;
-    let s: test_struct;
-    r10 = r10 - 50;
-    return r10;
+let a = 10;
+let b: i32 = 20;
+*/
+/*
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
+
+@entry
+fn start(argc: i32, argv: ptr<ptr<u8>>) -> u8 {
+    // Log out all arguments passed to the program.
+    for (let i = 0; i < argc; i++) {
+        let arg: ptr<u8> = deref(argv + cast<i64>(i) * sizeof<ptr<u8>>());
+        printf("Argument %d: %s\n", i, arg);
+    }
+    printf("argc: %d\n", argc);
+
+    return 0;
+}*/
+
+@extern @symbol("InitWindow") fn InitWindow(width: i32, height: i32, title: ptr<u8>) -> void;
+@extern @symbol("SetTargetFPS") fn SetTargetFPS(fps: i32) -> void;
+@extern @symbol("WindowShouldClose") fn WindowShouldClose() -> u8; // bool (u8)
+@extern @symbol("CloseWindow") fn CloseWindow() -> void;
+@extern @symbol("BeginDrawing") fn BeginDrawing() -> void;
+@extern @symbol("EndDrawing") fn EndDrawing() -> void;
+@extern @symbol("ClearBackground") fn ClearBackground(color: i32) -> void;
+@extern @symbol("DrawText") fn DrawText(text: ptr<u8>, x: i32, y: i32, fontSize: i32, color: i32) -> void;
+@extern @symbol("GetFPS") fn GetFPS() -> i32;
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
+@extern @symbol("IsKeyDown") fn IsKeyDown(key: i32) -> u8; // bool (u8)
+
+@entry
+fn main() -> u8 {
+    let width: i32 = 800;
+    let height: i32 = 450;
+    let title: ptr<u8> = "Hello World";
+
+    InitWindow(width, height, title);
+    SetTargetFPS(60);
+
+    let x = 400;
+    let y = 225;
+
+    let key_a = 65; // ASCII code for 'A'
+    let key_d = 68; // ASCII code for 'D'
+    let key_w = 87; // ASCII code for 'W'
+    let key_s = 83; // ASCII code for 'S'
+
+    while (true) {
+        if (WindowShouldClose() != 0) {
+            break;
+        }
+
+        BeginDrawing();
+        ClearBackground(0xFF000000); // opaque black
+        DrawText("Hello, Raylib!", x, y, 20, 0xFFFFFFFF); // white
+
+        let is_key_a_down = IsKeyDown(key_a) && 1; // Convert to 0 or 1
+        let is_key_d_down = IsKeyDown(key_d) && 1;
+        let is_key_w_down = IsKeyDown(key_w) && 1;
+        let is_key_s_down = IsKeyDown(key_s) && 1;
+
+        if (is_key_a_down != 0) {
+            x = x - 5;
+        }
+
+        if (is_key_d_down != 0) {
+            x = x + 5;
+        }
+
+        if (is_key_w_down != 0) {
+            y = y - 5;
+        }
+
+        if (is_key_s_down != 0) {
+            y = y + 5;
+        }
+
+        EndDrawing();
+    }
+
+    CloseWindow();
+    return 0;
 }

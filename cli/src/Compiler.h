@@ -5,13 +5,17 @@
 
 class Compiler {
 public:
-    Compiler(const std::string& sourceCode, const std::string& filePath, const std::string& outputPath);
+    struct Options {
+        std::string sourceCode;
+        std::string inputFile;
+        std::string outputFile;
+        bool is32BitTarget;
+    };
+    Compiler(Options options);
 
     void Compile();
 private:
-    std::string sourceCode;
-    std::string filePath;
-    std::string outputPath;
+    Options options;
 };
 
 

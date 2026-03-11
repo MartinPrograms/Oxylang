@@ -52,10 +52,29 @@ namespace Oxy {
     }
 
     void SemanticAnalyzer::Visit(Ast::VariableDeclaration *variableDeclaration) {
-        AddSymbol({variableDeclaration->GetName(), variableDeclaration->GetType(), Symbol::Kind::Variable, variableDeclaration->GetLine(), variableDeclaration->GetColumn()});
-        if (variableDeclaration->GetInitializer()) {
-            variableDeclaration->GetInitializer()->Accept(this);
+        auto name = variableDeclaration->GetName();
+        auto type = variableDeclaration->GetType();
+
+        auto initializer = variableDeclaration->GetInitializer();
+        if (initializer) {
+            initializer->Accept(this);
         }
+
+        if (type == nullptr && initializer == nullptr) {
+            errors.push_back({"Variable '" + name + "' has no type and no initializer, so its type cannot be inferred", "", variableDeclaration->GetLine(), variableDeclaration->GetColumn()});
+            return;
+        }
+
+        // Infer the type if it's not explicitly specified.
+        if (type == nullptr) {
+            type = ResolveExpressionType(initializer);
+            if (!type) {
+                errors.push_back({"Could not infer type of variable '" + name + "' from initializer", "", variableDeclaration->GetLine(), variableDeclaration->GetColumn()});
+                return;
+            }
+        }
+
+        AddSymbol({name, type, Symbol::Kind::Variable, variableDeclaration->GetLine(), variableDeclaration->GetColumn()});
     }
 
     void SemanticAnalyzer::Visit(Ast::StructDeclaration *structDeclaration) {
@@ -283,5 +302,48 @@ namespace Oxy {
     }
 
     void SemanticAnalyzer::Visit(Ast::ContinueStatement *continueStatement) {
+    }
+
+    Type * SemanticAnalyzer::ResolveExpressionType(Ast::Expression *expression) {
+        if (!expression) return nullptr;
+
+        if (auto* lit = dynamic_cast<Ast::LiteralExpression*>(expression))
+            return new Type(lit->GetLiteralType());
+
+        if (auto* ident = dynamic_cast<Ast::IdentifierExpression*>(expression)) {
+            auto* sym = ResolveSymbol(ident->ToString());
+            return sym ? sym->type : nullptr;
+        }
+
+        if (auto* bin = dynamic_cast<Ast::BinaryExpression*>(expression)) {
+            Type* t = ResolveExpressionType(bin->GetLeft());
+            return t ? t : ResolveExpressionType(bin->GetRight());
+        }
+
+        if (auto* unary = dynamic_cast<Ast::UnaryExpression*>(expression))
+            return ResolveExpressionType(unary->GetOperand());
+
+        if (auto* nested = dynamic_cast<Ast::NestedExpression*>(expression))
+            return ResolveExpressionType(nested->GetInner());
+
+        if (auto* cast = dynamic_cast<Ast::CastExpression*>(expression))
+            return cast->GetTargetType();
+
+        if (auto* call = dynamic_cast<Ast::FunctionCallExpression*>(expression)) {
+            auto* callee = dynamic_cast<Ast::IdentifierExpression*>(call->GetCallee());
+            if (callee) {
+                auto* sym = ResolveSymbol(callee->ToString());
+                return sym ? sym->type : nullptr;
+            }
+        }
+
+        if (auto* postfix = dynamic_cast<Ast::PostfixExpression*>(expression))
+            return ResolveExpressionType(postfix->GetOperand());
+
+        if (auto* subscript = dynamic_cast<Ast::SubscriptExpression*>(expression)) {
+            return ResolveExpressionType(subscript->GetArray());
+        }
+
+        return nullptr;
     }
 } // Oxy

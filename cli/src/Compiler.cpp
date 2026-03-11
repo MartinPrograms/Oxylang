@@ -1,4 +1,6 @@
 #include "Compiler.h"
+
+#include <fstream>
 #include <spdlog/spdlog.h>
 
 #include "../../oxylang/src/Error.h"
@@ -6,14 +8,15 @@
 #include "../../oxylang/src/SemanticAnalyzer.h"
 #include "../../oxylang/src/StructType.h"
 #include "../../oxylang/src/Tokenizer.h"
+#include "../../oxylang/src/CodeGenerator.h"
 
-Compiler::Compiler(const std::string &sourceCode, const std::string &filePath, const std::string &outputPath) : sourceCode(sourceCode), filePath(filePath), outputPath(outputPath) {
+Compiler::Compiler(Options options) : options(std::move(options)) {
 }
 
 void Compiler::Compile() {
-    spdlog::info("Compiling {} to {}", filePath, outputPath);
+    spdlog::info("Compiling {} to {}", options.inputFile, options.outputFile);
 
-    Oxy::Tokenizer tokenizer(sourceCode);
+    Oxy::Tokenizer tokenizer(options.sourceCode);
     auto tokens = tokenizer.Tokenize();
     spdlog::info("Tokenization complete. {} tokens found.", tokens.size());
 
@@ -61,37 +64,49 @@ void Compiler::Compile() {
         spdlog::info("Import: {} as {}", import.moduleName, import.alias);
     }
 
+    std::string result = "Global Scope: \n";
     std::function<void(Oxy::SemanticAnalyzer::Scope*, int)> scopePrinter = [&](Oxy::SemanticAnalyzer::Scope* scope, int indent = 0) {
         std::string indentStr(indent * 2, ' ');
         for (const auto& symbolPair : scope->symbols) {
             const auto& symbol = symbolPair.second;
-            spdlog::info("{}Symbol: {} (kind: {}, type: {}) at {}:{}", indentStr, symbol.name,
-                symbol.kind == Oxy::SemanticAnalyzer::Symbol::Kind::Variable ? "Variable" :
-                symbol.kind == Oxy::SemanticAnalyzer::Symbol::Kind::Function ? "Function" :
-                symbol.kind == Oxy::SemanticAnalyzer::Symbol::Kind::Struct ? "Struct" :
-                symbol.kind == Oxy::SemanticAnalyzer::Symbol::Kind::Parameter ? "Parameter" :
-                symbol.kind == Oxy::SemanticAnalyzer::Symbol::Kind::Import ? "Import" : "Unknown",
-                symbol.type ? symbol.type->ToString() : "<unknown>",
-                symbol.line, symbol.column);
+            if (symbol.type != nullptr) {
+                result += indentStr + symbol.name + ": " + symbol.type->ToString() + "\n";
+            }
+            else {
+                result += indentStr + symbol.name + ": <unknown type>\n";
+            }
         }
+
         for (const auto& child : scope->children) {
+            result += "\n" + indentStr + "{\n";
             scopePrinter(child, indent + 1);
+            result += indentStr + "}\n";
         }
     };
 
-    spdlog::info("Symbol table:");
     scopePrinter(analysis.globalScope, 0);
-/*
-    auto codegen = Oxy::CodeGenerator();
-    auto result = codegen.Generate(ast);
+    spdlog::info("Symbol table:\n{}", result);
 
-    if (!codegen.GetErrors().empty()) {
-        spdlog::error("Code generation failed with {} errors:", codegen.GetErrors().size());
-        for (const auto& error : codegen.GetErrors()) {
+    auto codegen = new Oxy::CodeGenerator(analysis, !options.is32BitTarget);
+    auto code = codegen->Generate(&ast);
+
+    if (!codegen->GetErrors().empty()) {
+        spdlog::error("Code generation failed with {} errors:", codegen->GetErrors().size());
+        for (const auto& error : codegen->GetErrors()) {
             spdlog::error(error.ToString());
         }
         return;
     }
-*/
 
+    // Write the generated code to the output file.
+    std::ofstream outFile(options.outputFile);
+    if (!outFile) {
+        spdlog::error("Failed to open output file: {}", options.outputFile);
+        return;
+    }
+
+    outFile << code;
+    outFile.close();
+
+    spdlog::info("Compilation successful. Output written to {}", options.outputFile);
 }

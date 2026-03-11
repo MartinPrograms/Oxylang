@@ -30,6 +30,9 @@ namespace Oxy::Ast {
         void Accept(Visitor* visitor) override {
             visitor->Visit(this);
         }
+
+        [[nodiscard]] const std::string& GetName() const { return name; }
+        [[nodiscard]] const std::vector<Expression*>& GetArgs() const { return args; }
     private:
         std::string name;
         std::vector<Expression*> args;

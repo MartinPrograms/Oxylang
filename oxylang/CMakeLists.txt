@@ -16,4 +16,8 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(QbeIR)
-target_link_libraries(Oxylang PRIVATE QbeIR)
+
+target_link_libraries(Oxylang
+        PUBLIC
+        QbeIR
+)

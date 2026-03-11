@@ -15,6 +15,9 @@ int main(int argc, char* argv[]) {
     std::string outputFile;
     app.add_option("-o,--output", outputFile, "Output file")->required();
 
+    bool is32Bit = false;
+    app.add_flag("--32", is32Bit, "Compile for 32-bit target");
+
     CLI11_PARSE(app, argc, argv);
 
     std::string inputSource;
@@ -32,6 +35,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    Compiler compiler(inputSource, inputFile, outputFile);
+    Compiler compiler({inputSource, inputFile, outputFile, is32Bit});
     compiler.Compile();
 }

@@ -38,6 +38,9 @@ namespace Oxy::Ast {
         void Accept(Visitor* visitor) override {
             visitor->Visit(this);
         }
+
+        [[nodiscard]] LiteralType GetLiteralType() const { return type; }
+        [[nodiscard]] const std::variant<uint64_t, double, std::string, char>& GetValue() const { return value; }
     private:
         LiteralType type;
         std::variant<uint64_t, double, std::string, char> value;

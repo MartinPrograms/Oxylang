@@ -124,6 +124,8 @@ namespace Oxy {
         Symbol *ResolveSymbol(const std::string& name) {
             return currentScope->Resolve(name);
         }
+
+        Type *ResolveExpressionType(Ast::Expression *expression);
     };
 } // Oxy
 
