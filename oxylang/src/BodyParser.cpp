@@ -758,7 +758,7 @@ namespace Oxy {
                     return nullptr;
                 }
 
-                return new Type(LiteralType::Int, std::get<uint64_t>(sizeToken.value), nestedType);
+                return new Type(LiteralType::Pointer, std::get<uint64_t>(sizeToken.value), nestedType);
             }
         }
 
