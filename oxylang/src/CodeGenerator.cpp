@@ -142,6 +142,9 @@ namespace Oxy {
 
     }
 
+    void CodeGenerator::Visit(Ast::TypeExpression *typeExpression) {
+    }
+
     std::string CodeGenerator::escapeStringLiteral(const std::string &get) {
         std::string newStr;
         for (char c : get) {

@@ -323,6 +323,27 @@ namespace Oxy {
                 std::string structName = std::get<std::string>(Match(Token::Kind::Identifier).value);
                 Advance(); // consume struct name
 
+                std::vector<Type *> genericParams;
+                if (consumeOpeningGeneric()) {
+                    while (true) {
+                        if (Match(Token::Kind::Identifier).kind != Token::Kind::Identifier) {
+                            errors.push_back({fmt::format("Expected generic parameter name in struct declaration"), "", Peek().line, Peek().column});
+                            break;
+                        }
+                        std::string paramName = std::get<std::string>(Match(Token::Kind::Identifier).value);
+                        Advance(); // consume generic parameter name
+                        genericParams.push_back(new Type(LiteralType::UserDefined, 0, nullptr, paramName));
+                        if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::Comma) {
+                            Advance(); // consume ','
+                        } else if (consumeClosingGeneric()) {
+                            break;
+                        } else {
+                            errors.push_back({fmt::format("Expected ',' or '>' in generic parameter list for struct declaration"), "", Peek().line, Peek().column});
+                            break;
+                        }
+                    }
+                }
+
                 if (Peek().kind != Token::Kind::Syntax || std::get<Syntax>(Peek().value) != Syntax::LeftBrace) {
                     errors.push_back({fmt::format("Expected '{{' at start of struct body"), "", Peek().line, Peek().column});
                     continue;

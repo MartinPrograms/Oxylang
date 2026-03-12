@@ -97,6 +97,7 @@ namespace Oxy {
         void Visit(Ast::FreeStatement *freeStatement) override;
         void Visit(Ast::ContinueStatement *continueStatement) override;
         void Visit(Ast::DereferenceAssignmentStatement *dereferenceAssignmentStatement) override;
+        void Visit(Ast::TypeExpression *typeExpression) override;
 
     private:
         std::vector<Error> errors = {};

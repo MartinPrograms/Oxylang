@@ -25,14 +25,19 @@ namespace Oxy {
                 }
             }
             else {
-                // Skip if ';'
                 if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::Semicolon) {
                     Advance();
                     continue;
                 }
 
-                errors->push_back({fmt::format("Unexpected token '{}' in function body", Peek().ToString()), "", Peek().line, Peek().column});
-                Advance();
+                // If all else fails, try to parse as an expression statement. This allows for things like function calls and assignments to be used as statements without needing a separate syntax for them.
+                auto expr = parseExpression();
+                if (expr) {
+                    body.push_back(new Ast::ExpressionStatement(expr, expr->GetLine(), expr->GetColumn()));
+                } else {
+                    errors->push_back({fmt::format("Unexpected token '{}' in function body", Peek().ToString()), "", Peek().line, Peek().column});
+                    Advance();
+                }
             }
         }
 
@@ -78,236 +83,277 @@ namespace Oxy {
         return new Ast::VariableDeclaration(varName, varType, initializer, {}, Peek().line, Peek().column);
     }
 
+    Ast::Expression * BodyParser::parseAddressOf(Token tok) {
+        Advance();
+        if (!expectSyntax(Syntax::LeftParen)) {
+            errors->push_back({fmt::format("Expected '(' after 'addr'"), "", Peek().line, Peek().column});
+            return nullptr;
+        }
+
+        auto expression = parseExpression();
+        if (!expression) {
+            errors->push_back({fmt::format("Expected expression inside 'addr'"), "", Peek().line, Peek().column});
+            return nullptr;
+        }
+
+        if (!expectSyntax(Syntax::RightParen)) {
+            errors->push_back({fmt::format("Expected ')' after expression in 'addr'"), "", Peek().line, Peek().column});
+            return nullptr;
+        }
+
+        return new Ast::AddressOfExpression(expression, tok.line, tok.column);
+    }
+
+    Ast::Expression * BodyParser::parseDereferenceExpression(Token tok) {
+        Advance();
+
+        if (!expectSyntax(Syntax::LeftParen)) {
+            errors->push_back({fmt::format("Expected '(' after 'deref'"), "", Peek().line, Peek().column});
+            return nullptr;
+        }
+
+        auto expression = parseExpression();
+        if (!expression) {
+            errors->push_back({fmt::format("Expected expression inside 'deref'"), "", Peek().line, Peek().column});
+            return nullptr;
+        }
+
+        if (!expectSyntax(Syntax::RightParen)) {
+            errors->push_back({fmt::format("Expected ')' after expression in 'deref'"), "", Peek().line, Peek().column});
+            return nullptr;
+        }
+
+        return new Ast::DereferenceExpression(expression, tok.line, tok.column);
+    }
+
     Ast::Expression * BodyParser::parsePrimary() {
         auto tok = Peek();
 
         if (tok.kind == Token::Kind::IntLiteral) {
             Advance();
-            return new Ast::LiteralExpression(tok.literalType,
-                std::get<uint64_t>(tok.value), tok.line, tok.column);
+            return new Ast::LiteralExpression(tok.literalType, std::get<uint64_t>(tok.value), tok.line, tok.column);
         }
         if (tok.kind == Token::Kind::FloatLiteral) {
             Advance();
-            return new Ast::LiteralExpression(tok.literalType,
-                std::get<double>(tok.value), tok.line, tok.column);
+            return new Ast::LiteralExpression(tok.literalType, std::get<double>(tok.value), tok.line, tok.column);
         }
         if (tok.kind == Token::Kind::StringLiteral) {
             Advance();
-            return new Ast::LiteralExpression(LiteralType::Pointer,
-                std::get<std::string>(tok.value), tok.line, tok.column);
+            return new Ast::LiteralExpression(LiteralType::Pointer, std::get<std::string>(tok.value), tok.line, tok.column);
         }
 
         if (tok.kind == Token::Kind::Keyword) {
-            if (std::get<Keyword>(tok.value) == Keyword::True) {
-                Advance();
-                return new Ast::LiteralExpression(LiteralType::U8, (uint64_t)1, tok.line, tok.column);
+            auto kw = std::get<Keyword>(tok.value);
+
+            if (kw == Keyword::True) { Advance(); return new Ast::LiteralExpression(LiteralType::U8, (uint64_t)1, tok.line, tok.column); }
+            if (kw == Keyword::False) { Advance(); return new Ast::LiteralExpression(LiteralType::U8, (uint64_t)0, tok.line, tok.column); }
+            if (kw == Keyword::Null) { Advance(); return new Ast::LiteralExpression(LiteralType::Pointer, (uint64_t)0, tok.line, tok.column); }
+
+            if (kw == Keyword::Addr) {
+                // addr(x)
+                return parseAddressOf(tok);
             }
 
-            if (std::get<Keyword>(tok.value) == Keyword::False) {
-                Advance();
-                return new Ast::LiteralExpression(LiteralType::U8, (uint64_t)0, tok.line, tok.column);
+            if (kw == Keyword::Deref) {
+                return parseDereferenceExpression(tok);
             }
 
-            if (std::get<Keyword>(tok.value) == Keyword::Null) {
-                Advance();
-                return new Ast::LiteralExpression(LiteralType::Pointer, (uint64_t)0, tok.line, tok.column);
-            }
-
-            if (std::get<Keyword>(tok.value) == Keyword::Addr) {
-                Advance(); // consume 'addr'
-                if (!expectSyntax(Syntax::LeftParen)) return nullptr;
-                auto expr = parseExpression();
-                if (!expr) {
-                    errors->push_back({fmt::format("Expected expression in 'addr' operator"), "", Peek().line, Peek().column});
-                    return nullptr;
-                }
-                if (!expectSyntax(Syntax::RightParen)) return nullptr;
-                return new Ast::AddressOfExpression(expr, tok.line, tok.column);
-            }
-
-            if (std::get<Keyword>(tok.value) == Keyword::Deref) {
-                Advance(); // consume 'deref'
-                if (!expectSyntax(Syntax::LeftParen)) return nullptr;
-                auto expr = parseExpression();
-                if (!expr) {
-                    errors->push_back({fmt::format("Expected expression in 'deref' operator"), "", Peek().line, Peek().column});
-                    return nullptr;
-                }
-                if (!expectSyntax(Syntax::RightParen)) return nullptr;
-                return new Ast::DereferenceExpression(expr, tok.line, tok.column);
-            }
-
-            if (std::get<Keyword>(tok.value) == Keyword::SizeOf) {
-                Advance(); // consume 'sizeof'
-                // Expect <
-                if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::LessThan) {
-                    Advance(); // consume '<'
-                    auto type = parseType();
-                    if (!type) {
-                        errors->push_back({fmt::format("Expected type in 'sizeof' operator"), "", Peek().line, Peek().column});
-                        return nullptr;
-                    }
-                    if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::GreaterThan) {
-                        errors->push_back({fmt::format("Expected '>' after type in 'sizeof' operator"), "", Peek().line, Peek().column});
-                        return nullptr;
-                    }
-                    Advance(); // consume '>'
-                    if (!expectSyntax(Syntax::LeftParen)) {
-                        errors->push_back({fmt::format("Expected '(' after 'sizeof' type in sizeof expression"), "", Peek().line, Peek().column});
-                        return nullptr;
-                    }
-                    if (!expectSyntax(Syntax::RightParen)) return nullptr;
-                    return new Ast::SizeOfExpression(type, tok.line, tok.column);
-                }
-            }
-
-            if (std::get<Keyword>(tok.value) == Keyword::AlignOf) {
-                Advance(); // consume 'alignof'
-                // Expect <
-                if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::LessThan) {
-                    Advance(); // consume '<'
-                    auto type = parseType();
-                    if (!type) {
-                        errors->push_back({fmt::format("Expected type in 'alignof' operator"), "", Peek().line, Peek().column});
-                        return nullptr;
-                    }
-                    if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::GreaterThan) {
-                        errors->push_back({fmt::format("Expected '>' after type in 'alignof' operator"), "", Peek().line, Peek().column});
-                        return nullptr;
-                    }
-                    Advance(); // consume '>'
-                    if (!expectSyntax(Syntax::LeftParen)) {
-                        errors->push_back({fmt::format("Expected '(' after 'alignof' type in alignof expression"), "", Peek().line, Peek().column});
-                        return nullptr;
-                    }
-                    if (!expectSyntax(Syntax::RightParen)) return nullptr;
-                    return new Ast::AlignOfExpression(type, tok.line, tok.column);
-                }
-            }
-
-            if (std::get<Keyword>(tok.value) == Keyword::TypeOf) {
-                Advance(); // consume 'typeof'
-                if (!expectSyntax(Syntax::LeftParen)) return nullptr;
-                auto expr = parseExpression();
-                if (!expr) {
-                    errors->push_back({fmt::format("Expected expression in 'typeof' operator"), "", Peek().line, Peek().column});
-                    return nullptr;
-                }
-                if (!expectSyntax(Syntax::RightParen)) return nullptr;
-                return new Ast::TypeOfExpression(expr, tok.line, tok.column);
-            }
-
-            if (std::get<Keyword>(tok.value) == Keyword::Cast) {
-                Advance(); // consume 'cast'
-                if (Peek().kind != Token::Kind::Operator || std::get<Operator>(Peek().value) != Operator::LessThan) {
-                    errors->push_back({fmt::format("Expected '<' after 'cast' in cast expression"), "", Peek().line, Peek().column});
-                    return nullptr;
-                }
-
+            auto parseTypeOperator = [&](const char* name) -> Type * {
                 if (!consumeOpeningGeneric()) {
-                    errors->push_back({fmt::format("Expected '<' after 'cast' in cast expression"), "", Peek().line, Peek().column});
+                    errors->push_back({fmt::format("Expected '<' after '{}'", name), "", Peek().line, Peek().column});
                     return nullptr;
                 }
 
                 auto type = parseType();
                 if (!type) {
-                    errors->push_back({fmt::format("Expected type in 'cast' operator"), "", Peek().line, Peek().column});
+                    errors->push_back({fmt::format("Expected type inside '{}' operator", name), "", Peek().line, Peek().column});
                     return nullptr;
                 }
 
                 if (!consumeClosingGeneric()) {
-                    errors->push_back({fmt::format("Expected '>' after type in 'cast' operator"), "", Peek().line, Peek().column});
+                    errors->push_back({fmt::format("Expected '>' after type in '{}' operator", name), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+
+                return type;
+            };
+
+            if (kw == Keyword::Cast) {
+                Advance();
+
+                auto type = parseTypeOperator("cast");
+                if (!type) {
+                    errors->push_back({fmt::format("Failed to parse type in cast operator"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
 
                 if (!expectSyntax(Syntax::LeftParen)) {
-                    errors->push_back({fmt::format("Expected '(' after 'cast' type in cast expression"), "", Peek().line, Peek().column});
+                    errors->push_back({fmt::format("Expected '(' after type in cast operator"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
 
-                auto expr = parseExpression();
-                if (!expr) {
-                    errors->push_back({fmt::format("Expected expression in cast expression"), "", Peek().line, Peek().column});
+                auto expression = parseExpression();
+
+                if (!expression) {
+                    errors->push_back({fmt::format("Expected expression in cast operator"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
 
                 if (!expectSyntax(Syntax::RightParen)) {
-                    errors->push_back({fmt::format("Expected ')' after expression in cast expression"), "", Peek().line, Peek().column});
+                    errors->push_back({fmt::format("Expected ')' after expression in cast operator"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
 
-                return new Ast::CastExpression(expr, type, tok.line, tok.column);
+                return new Ast::CastExpression(expression, type, tok.line, tok.column);
             }
 
-            // allocate<T>(count) // count is optional, if count is not provided, we just allocate a single T.
-            if (std::get<Keyword>(tok.value) == Keyword::Allocate) {
-                Advance(); // consume 'allocate'
-                if (!consumeOpeningGeneric()) {
-                    errors->push_back({fmt::format("Expected '<' after 'allocate' in allocate expression"), "", Peek().line, Peek().column});
-                    return nullptr;
-                }
+            // sizeof<T>
+            if (kw == Keyword::SizeOf) {
+                Advance();
 
-                auto type = parseType();
+                auto type = parseTypeOperator("sizeof");
                 if (!type) {
-                    errors->push_back({fmt::format("Expected type in 'allocate' operator"), "", Peek().line, Peek().column});
+                    errors->push_back({fmt::format("Failed to parse type in sizeof operator"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
 
-                if (!consumeClosingGeneric()) {
-                    errors->push_back({fmt::format("Expected '>' after type in 'allocate' operator"), "", Peek().line, Peek().column});
+                return new Ast::SizeOfExpression(type, tok.line, tok.column);
+            }
+
+            // alignof<T>
+            if (kw == Keyword::AlignOf) {
+                Advance();
+
+                auto type = parseTypeOperator("alignof");
+                if (!type) {
+                    errors->push_back({fmt::format("Failed to parse type in alignof operator"), "", Peek().line, Peek().column});
                     return nullptr;
                 }
 
-                Ast::Expression *countExpr = nullptr;
-                if (!expectSyntax(Syntax::LeftParen)) return nullptr;
-                if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::RightParen) {
-                    Advance(); // consume ')'
-                }else {
-                    countExpr = parseExpression();
-                    if (!countExpr) {
-                        errors->push_back({fmt::format("Expected expression for count in 'allocate' operator"), "", Peek().line, Peek().column});
-                        return nullptr;
-                    }
+                return new Ast::AlignOfExpression(type, tok.line, tok.column);
+            }
 
-                    if (!expectSyntax(Syntax::RightParen)) return nullptr;
+            // typeof(x)
+            if (kw == Keyword::TypeOf) {
+                Advance();
+
+                if (!expectSyntax(Syntax::LeftParen)) {
+                    errors->push_back({fmt::format("Expected '(' after 'typeof'"), "", Peek().line, Peek().column});
+                    return nullptr;
                 }
 
-                return new Ast::AllocateExpression(type, countExpr, tok.line, tok.column);
+                auto expression = parseExpression();
+                if (!expression) {
+                    errors->push_back({fmt::format("Expected expression in 'typeof' operator"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+
+                if (!expectSyntax(Syntax::RightParen)) {
+                    errors->push_back({fmt::format("Expected ')' after expression in 'typeof' operator"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+
+                return new Ast::TypeOfExpression(expression, tok.line, tok.column);
             }
         }
 
         if (tok.kind == Token::Kind::Syntax && std::get<Syntax>(tok.value) == Syntax::LeftParen) {
             Advance(); // consume '('
-            auto* inner = parseExpression();
-            if (!inner) return nullptr;
-            if (!expectSyntax(Syntax::RightParen)) return nullptr;
-            return new Ast::NestedExpression(inner, tok.line, tok.column);
+            auto expr = parseExpression();
+            if (!expr) {
+                errors->push_back({fmt::format("Expected expression after '('"), "", Peek().line, Peek().column});
+                return nullptr;
+            }
+            if (!expectSyntax(Syntax::RightParen)) {
+                errors->push_back({fmt::format("Expected ')' after expression"), "", Peek().line, Peek().column});
+                return nullptr;
+            }
+            return expr;
         }
 
         if (tok.kind == Token::Kind::Operator && std::get<Operator>(tok.value) == Operator::Subtract) {
-            Advance();
-
-            auto* operand = parseExpression(HIGHEST_PRECEDENCE);
-            if (!operand) return nullptr;
-            return new Ast::UnaryExpression(std::get<Operator>(tok.value), operand, tok.line, tok.column);
+            Advance(); // consume '-'
+            auto right = parseExpression(HIGHEST_PRECEDENCE);
+            if (!right) {
+                errors->push_back({fmt::format("Expected expression after '-'"), "", Peek().line, Peek().column});
+                return nullptr;
+            }
+            return new Ast::UnaryExpression(Operator::Subtract, right, tok.line, tok.column);
         }
 
         if (tok.kind == Token::Kind::Identifier) {
-            Advance(); // consume identifier
-            return new Ast::IdentifierExpression(std::get<std::string>(tok.value), tok.line, tok.column);
+            Advance();
+            auto name = std::get<std::string>(tok.value);
+
+            std::vector<Type*> typeArgs;
+            auto currentIndexBackup = currentIndex;
+
+            if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::LessThan) {
+                if (!consumeOpeningGeneric()) {
+                    errors->push_back({"Expected '<' in generic expression", "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+
+                do {
+                    auto typeArg = parseType();
+                    if (!typeArg) { errors->push_back({"Expected type argument", "", Peek().line, Peek().column}); return nullptr; }
+                    typeArgs.push_back(typeArg);
+                } while (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::Comma && (Advance(), true));
+
+                if (!consumeClosingGeneric()) {
+                    // We might've made a mistake, and this actually isnt a generic expression, but a normal identifier followed by a '<' operator. So we should just ignore the generic part and continue parsing as normal.
+                    currentIndex = currentIndexBackup; // reset index to before we tried parsing generics
+                    typeArgs.clear();
+                }
+            }
+
+            // Check for (), if so it's a generic function call, otherwise it's a generic type.
+            if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::LeftParen) {
+                // It's a generic function call.
+                std::vector<Ast::Expression*> args;
+                Advance(); // consume '('
+                if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::RightParen) {
+                    Advance(); // consume ')'
+                } else {
+                    while (true) {
+                        auto arg = parseExpression();
+                        if (!arg) {
+                            errors->push_back({"Expected expression in function call arguments", "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+                        args.push_back(arg);
+                        if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::Comma) {
+                            Advance(); // consume ','
+                        } else if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::RightParen) {
+                            Advance(); // consume ')'
+                            break;
+                        } else {
+                            errors->push_back({"Expected ',' or ')' in function call arguments", "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+                    }
+                }
+
+                return new Ast::FunctionCallExpression(new Ast::IdentifierExpression(name, tok.line, tok.column), args, typeArgs, tok.line, tok.column);
+            }
+
+            if (!typeArgs.empty()) {
+                return new Ast::TypeExpression(name, typeArgs, tok.line, tok.column);
+            }
+
+            return new Ast::IdentifierExpression(name, tok.line, tok.column);
         }
 
-        // If its ) or ] or } or ;, then we just return nullptr to indicate the end of the current expression. (for example 'for (let i: i32 = 0; i < 10; i + 1)' when we parse 'i + 1', we will hit the ')' at the end, which indicates the end of the expression.)
         if (tok.kind == Token::Kind::Syntax) {
             auto syn = std::get<Syntax>(tok.value);
-            if (syn == Syntax::RightParen || syn == Syntax::RightBracket || syn == Syntax::RightBrace || syn == Syntax::Semicolon) {
-                Advance();
+            if (syn == Syntax::RightParen || syn == Syntax::RightBracket ||
+                syn == Syntax::RightBrace  || syn == Syntax::Semicolon) {
                 return nullptr;
             }
         }
 
         errors->push_back({fmt::format("Unexpected token '{}' in expression", tok.ToString()), "", tok.line, tok.column});
-        Advance(); // consume to avoid infinite loop
+        Advance(); // consume the unexpected token to avoid infinite loop
         return nullptr;
     }
 
@@ -326,6 +372,31 @@ namespace Oxy {
                     left = new Ast::PostfixExpression(left, op, token.line, token.column);
                     continue;
                 }
+            }
+
+            std::vector<Type*> genericArgs;
+            auto currentIndexBackup = currentIndex;
+            if (consumeOpeningGeneric()) {
+                while (true) {
+                    auto typeArg = parseType();
+                    if (!typeArg) {
+                        errors->push_back({fmt::format("Expected type argument in generic expression"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    genericArgs.push_back(typeArg);
+
+                    if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::Comma) {
+                        Advance(); // consume ','
+                    } else if (consumeClosingGeneric()) {
+                        break;
+                    } else {
+                        genericArgs.clear();
+                        currentIndex = currentIndexBackup; // reset index to before we tried parsing generics
+                        break;
+                    }
+                }
+
+                // we cant do anything with these arguments, but they might be used by the function call below.
             }
 
             // If token is (, it's a function call
@@ -355,7 +426,7 @@ namespace Oxy {
                     }
                 }
 
-                left = new Ast::FunctionCallExpression(left, args, token.line, token.column);
+                left = new Ast::FunctionCallExpression(left, args, genericArgs, token.line, token.column);
                 continue;
             }
 
@@ -675,7 +746,29 @@ namespace Oxy {
                     return new Ast::DereferenceAssignmentStatement(expr, valueExpr, Peek().line, Peek().column);
                 }
                 else if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::MemberAccess) {
+                    Advance(); // consume '.'
+                    if (Peek().kind != Token::Kind::Identifier) {
+                        errors->push_back({fmt::format("Expected identifier after '.' in member access after 'deref'"), "", Peek().line, Peek().column});
+                        return nullptr;
+                    }
+                    std::string memberName = std::get<std::string>(Match(Token::Kind::Identifier).value);
+                    Advance(); // consume member name
 
+                    if (Peek().kind == Token::Kind::Operator && std::get<Operator>(Peek().value) == Operator::Assignment) {
+                        Advance(); // consume '='
+                        auto valueExpr = parseExpression();
+                        if (!valueExpr) {
+                            errors->push_back({fmt::format("Expected expression for value in 'deref' member assignment statement"), "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+                        if (!expectSyntax(Syntax::Semicolon)) {
+                            errors->push_back({fmt::format("Expected ';' after 'deref' member assignment statement"), "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+
+                        auto memberAccessExpr = new Ast::MemberAccessExpression(new Ast::DereferenceExpression(expr, Peek().line, Peek().column), memberName, Peek().line, Peek().column);
+                        return new Ast::AssignmentExpression(memberAccessExpr, valueExpr, Peek().line, Peek().column);
+                    }
                 }
                 else {
                     errors->push_back({fmt::format("Expected '=' after 'deref' expression in dereference assignment statement"), "", Peek().line, Peek().column});

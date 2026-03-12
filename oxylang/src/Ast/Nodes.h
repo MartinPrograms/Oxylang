@@ -28,6 +28,7 @@
 #include "ForStatement.h"
 #include "ImportStatement.h"
 #include "DereferenceAssignmentStatement.h"
+#include "TypeExpression.h"
 
 #include "Root.h"
 

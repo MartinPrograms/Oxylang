@@ -22,6 +22,11 @@ namespace Oxy {
         size_t currentIndex;
 
         Ast::VariableDeclaration *parseVariableDeclaration();
+
+        Ast::Expression *parseAddressOf(Token tok);
+
+        Ast::Expression *parseDereferenceExpression(Token tok);
+
         Ast::Expression *parsePrimary();
         Ast::Expression *parseExpression(float precedence = LOWEST_PRECEDENCE);
 

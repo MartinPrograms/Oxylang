@@ -8,11 +8,23 @@
 namespace Oxy::Ast {
     class FunctionCallExpression : public Expression {
     public:
-        FunctionCallExpression(Expression* callee, std::vector<Expression*> arguments, int line, int column)
-            : Expression(line, column), callee(callee), arguments(std::move(arguments)) {}
+        FunctionCallExpression(Expression* callee, std::vector<Expression*> arguments, std::vector<Type *> types, int line, int column)
+            : Expression(line, column), callee(callee), arguments(std::move(arguments)), types(std::move(types)) {}
 
         std::string ToString() const override {
-            std::string result = callee->ToString() + "(";
+            std::string result = callee->ToString();
+
+            if (!types.empty()) {
+                result += "<";
+                for (size_t i = 0; i < types.size(); i++) {
+                    result += types[i]->ToString();
+                    if (i < types.size() - 1) {
+                        result += ", ";
+                    }
+                }
+                result += ">";
+            }
+
             for (size_t i = 0; i < arguments.size(); i++) {
                 result += arguments[i]->ToString();
                 if (i < arguments.size() - 1) {
@@ -32,6 +44,7 @@ namespace Oxy::Ast {
     private:
         Expression* callee;
         std::vector<Expression*> arguments;
+        std::vector<Type *> types; // For generic function calls, the type arguments go here.
     };
 }
 

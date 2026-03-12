@@ -432,6 +432,9 @@ namespace Oxy {
 
     }
 
+    void SemanticAnalyzer::Visit(Ast::TypeExpression *typeExpression) {
+    }
+
     Type *SemanticAnalyzer::ResolveExpressionType(Ast::Expression *expression) {
         if (!expression) return nullptr;
 
