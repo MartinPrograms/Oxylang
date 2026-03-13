@@ -296,7 +296,12 @@ namespace Oxy {
 
                 do {
                     auto typeArg = parseType();
-                    if (!typeArg) { errors->push_back({"Expected type argument", "", Peek().line, Peek().column}); return nullptr; }
+                    if (!typeArg) {
+                        // This isnt a generic type after all.
+                        currentIndex = currentIndexBackup; // reset index to before we tried parsing generics
+                        typeArgs.clear();
+                        break;
+                    }
                     typeArgs.push_back(typeArg);
                 } while (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::Comma && (Advance(), true));
 
@@ -380,8 +385,10 @@ namespace Oxy {
                 while (true) {
                     auto typeArg = parseType();
                     if (!typeArg) {
-                        errors->push_back({fmt::format("Expected type argument in generic expression"), "", Peek().line, Peek().column});
-                        return nullptr;
+                        // This isnt a generic function call after all, it's just a normal function call followed by a '<' operator. So we should just ignore the generic part and continue parsing as normal.
+                        currentIndex = currentIndexBackup; // reset index to before we tried parsing generics
+                        genericArgs.clear();
+                        break;
                     }
                     genericArgs.push_back(typeArg);
 
@@ -980,7 +987,7 @@ namespace Oxy {
             }
         }
 
-        errors->push_back({fmt::format("Expected type name, got '{}'", Peek().ToString()), "", Peek().line, Peek().column});
+        // errors->push_back({fmt::format("Expected type name, got '{}'", Peek().ToString()), "", Peek().line, Peek().column});
         return nullptr;
     }
 } // Oxy

@@ -62,7 +62,7 @@ namespace Oxy::Ast {
         [[nodiscard]] const std::vector<VariableDeclaration*>& GetParameters() const { return parameters; }
         [[nodiscard]] bool IsVariadic() const { return isVariadic; }
         [[nodiscard]] const std::vector<Attribute*>& GetAttributes() const { return attributes; }
-        [[nodiscard]] Type* GetReturnType() const { return returnType; }
+        [[nodiscard]] Type* GetReturnType() const { if (returnType == nullptr) { return new Type(LiteralType::Void); } return returnType; }
         [[nodiscard]] const std::vector<Node*>& GetBody() const { return body; }
         [[nodiscard]] FunctionType* GetFunctionType() const { return functionType; }
 

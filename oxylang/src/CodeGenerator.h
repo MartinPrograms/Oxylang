@@ -18,6 +18,7 @@ namespace Oxy {
             Scope* parent = nullptr;
             std::vector<Scope *> children {};
             std::unordered_map<std::string, Qbe::ValueReference> variables {};
+            std::unordered_map<std::string, SemanticAnalyzer::Symbol> symbols {};
 
             Scope(Scope* parent) : parent(parent) {}
         };
@@ -31,6 +32,10 @@ namespace Oxy {
 
         void Visit(Ast::Root *root) override;
         void Visit(Ast::Function *function) override;
+
+        void EmitGlobal(Ast::VariableDeclaration *variableDeclaration, Type *explicitType,
+                        Ast::Expression *initializer);
+
         void Visit(Ast::VariableDeclaration *variableDeclaration) override;
         void Visit(Ast::StructDeclaration *structDeclaration) override;
         void Visit(Ast::Attribute *attribute) override;
@@ -73,11 +78,12 @@ namespace Oxy {
         Qbe::Function* currentFunction;
 
         Qbe::ITypeDefinition *GetQbeType(Type* type);
+
         Type *ResolveExpressionType(Ast::Expression* expression);
 
         std::string escapeStringLiteral(const std::string & get);
 
-        Qbe::ValueReference EmitExpression(Ast::Expression* expression);
+        Qbe::ValueReference EmitExpression(Ast::Expression* expression, bool getReference = false);
 
         std::stack<Qbe::Block *> blockStack {};
         Qbe::Block *getCurrentBlock() {
@@ -119,27 +125,23 @@ namespace Oxy {
         }
 
         SemanticAnalyzer::Symbol *ResolveSymbol(const std::string& name) {
-            SemanticAnalyzer::Scope* scope = result.globalScope;
-            std::vector<SemanticAnalyzer::Scope*> scopesToCheck = {scope};
-            while (!scopesToCheck.empty()) {
-                SemanticAnalyzer::Scope* current = scopesToCheck.back();
-                scopesToCheck.pop_back();
-                auto it = current->symbols.find(name);
-                if (it != current->symbols.end()) {
+            Scope* scope = currentScope;
+            while (scope) {
+                auto it = scope->symbols.find(name);
+                if (it != scope->symbols.end()) {
                     return &it->second;
                 }
-                for (auto child : current->children) {
-                    scopesToCheck.push_back(child);
-                }
+                scope = scope->parent;
             }
             return nullptr;
         }
 
-        bool AddVariable(const std::string& name, const Qbe::ValueReference& value) {
+        bool AddVariable(const std::string& name, const Qbe::ValueReference& value, const SemanticAnalyzer::Symbol& symbol) {
             if (currentScope->variables.find(name) != currentScope->variables.end()) {
                 return false; // Variable already exists in the current scope
             }
             currentScope->variables[name] = value;
+            currentScope->symbols[name] = symbol;
             return true;
         }
 

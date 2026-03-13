@@ -211,25 +211,21 @@ namespace Oxy {
 /*
  Operators
 
-    Operator 	Description 	Associativity 	Precedence
-    () 	Parentheses 	Left to Right 	1
-    [] 	Array subscript 	Left to Right 	2
-    . 	Member access 	Left to Right 	2
-    addr, deref, cast<T> 	Unary operators 	Right to Left 	3
-    *, /, % 	Multiplication, Division, Modulus 	Left to Right 	4
-    +, - 	Addition, Subtraction 	Left to Right 	5
-    && 	Logical AND 	Left to Right 	6
-    || 	Logical OR 	Left to Right 	6
-    <<, >> 	Bitwise shift left/right 	Left to Right 	7
-    & 	Bitwise AND 	Left to Right 	7
-    ^ 	Bitwise XOR 	Left to Right 	7
-    | 	Bitwise OR 	Left to Right 	7
-    <, <=, >, >= 	Comparison operators 	Left to Right 	8
-    ==, != 	Equality operators 	Left to Right 	8
-    = 	Assignment 	Right to Left 	9
-    +=, -=, *=, /=, %= 	Compound assignment operators 	Right to Left 	9
-    ++, -- 	Increment, Decrement 	Right to Left 	0
-    */
+    (lower number = higher precedence)
+
+    | operator                         | description                        | associativity | precedence |
+    |----------------------------------|------------------------------------|---------------|------------|
+    | `++`, `--`                       | post-increment/decrement           | left          | 0          |
+    | `()`                             | nested expressions, function calls | left          | 1          |
+    | `[]`, `.`                        | array access, member access        | left          | 2          |
+    | `addr`, `deref`, `cast`          | pointer operations                 | right         | 3          |
+    | `*`, `/`, `%`                    | multiplication, division, modulus  | left          | 4          |
+    | `+`, `-`                         | addition, subtraction              | left          | 5          |
+    | `<`, `<=`, `>`, `>=`, `==`, `!=` | equality operators                 | left          | 6          |
+    | `&&`, `\|\|`                     | logical AND, OR                    | left          | 7          |
+    | `<<`, `>>`, `&`, `^`, `\|`       | bitwise operators                  | left          | 8          |
+    | `=`, `+=`, `-=`, etc.            | assignment operators               | right         | 9          |
+*/
 
     enum class Operator {
         Parentheses,
@@ -301,39 +297,39 @@ namespace Oxy {
     };
 
     inline std::map<Operator, float> OperatorPrecedence = {
-        {Operator::Parentheses, 1},
-        {Operator::ArraySubscript, 2},
-        {Operator::MemberAccess, 2},
-        {Operator::Addr, 3},
-        {Operator::Deref, 3},
-        {Operator::Cast, 3},
-        {Operator::Multiply, 4},
-        {Operator::Divide, 4},
-        {Operator::Modulus, 4},
-        {Operator::Add, 5},
-        {Operator::Subtract, 5},
-        {Operator::LogicalAnd, 6},
-        {Operator::LogicalOr, 6},
-        {Operator::ShiftLeft, 7},
-        {Operator::ShiftRight, 7},
-        {Operator::BitwiseAnd, 7},
-        {Operator::BitwiseXor, 7},
-        {Operator::BitwiseOr, 7},
-        {Operator::LessThan, 8},
-        {Operator::LessThanOrEqual, 8},
-        {Operator::GreaterThan, 8},
-        {Operator::GreaterThanOrEqual, 8},
-        {Operator::Equal, 8},
-        {Operator::NotEqual, 8},
-        {Operator::Assignment, 9},
-        {Operator::CompoundAssignmentAdd, 9},
-        {Operator::CompoundAssignmentSubtract, 9},
-        {Operator::CompoundAssignmentMultiply, 9},
-        {Operator::CompoundAssignmentDivide, 9},
-        {Operator::CompoundAssignmentModulus, 9},
-        {Operator::Increment, 0},
-        {Operator::Decrement, 0},
-        {Operator::Arrow, 11}
+        {Operator::Parentheses, 1.0f},
+        {Operator::ArraySubscript, 2.0f},
+        {Operator::MemberAccess, 2.0f},
+        {Operator::Addr, 3.0f},
+        {Operator::Deref, 3.0f},
+        {Operator::Cast, 3.0f},
+        {Operator::Multiply, 4.0f},
+        {Operator::Divide, 4.0f},
+        {Operator::Modulus, 4.0f},
+        {Operator::Add, 5.0f},
+        {Operator::Subtract, 5.0f},
+        {Operator::LogicalAnd, 7.0f},
+        {Operator::LogicalOr, 7.0f},
+        {Operator::ShiftLeft, 8.0f},
+        {Operator::ShiftRight, 8.0f},
+        {Operator::BitwiseAnd, 8.0f},
+        {Operator::BitwiseXor, 8.0f},
+        {Operator::BitwiseOr, 8.0f},
+        {Operator::LessThan, 6.0f},
+        {Operator::LessThanOrEqual, 6.0f},
+        {Operator::GreaterThan, 6.0f},
+        {Operator::GreaterThanOrEqual, 6.0f},
+        {Operator::Equal, 6.0f},
+        {Operator::NotEqual, 6.0f},
+        {Operator::Assignment, 9.0f},
+        {Operator::CompoundAssignmentAdd, 9.0f},
+        {Operator::CompoundAssignmentSubtract, 9.0f},
+        {Operator::CompoundAssignmentMultiply, 9.0f},
+        {Operator::CompoundAssignmentDivide, 9.0f},
+        {Operator::CompoundAssignmentModulus, 9.0f},
+        {Operator::Increment, 0.5f},
+        {Operator::Decrement, 0.5f},
+        {Operator::Variadic, 11.0f}
     };
 
     inline std::map<Operator, bool> OperatorRightAssociative = {

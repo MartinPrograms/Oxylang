@@ -442,6 +442,9 @@ namespace Oxy {
             if (lit->GetLiteralType() == LiteralType::Pointer && std::holds_alternative<uint64_t>(lit->GetValue()) && std::get<uint64_t>(lit->GetValue()) == 0) {
                 return new Type(LiteralType::Pointer, 0, new Type(LiteralType::Void));
             }
+            else if (lit->GetLiteralType() == LiteralType::Pointer && std::holds_alternative<std::string>(lit->GetValue())) {
+                return new Type(LiteralType::Pointer, 0, new Type(LiteralType::U8)); // string literals have type "pointer to u8"
+            }
             return new Type(lit->GetLiteralType());
         }
 
