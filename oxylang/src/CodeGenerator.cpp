@@ -103,6 +103,12 @@ namespace Oxy {
             if (param->GetType()->GetLiteralType() == LiteralType::Pointer) {
                 AddVariable(param->GetName(), Qbe::ValueReference(&qbeFunction->parameters[i]), {param->GetName(), param->GetType(), SemanticAnalyzer::Symbol::Kind::Variable, param->GetLine(), param->GetColumn()});
             }
+            else if (param->GetType()->GetLiteralType() == LiteralType::UserDefined) {
+                auto qbeType = GetQbeType(param->GetType());
+                auto allocated = entryPoint->addAllocate(GetSize(qbeType));
+                entryPoint->addBlit(Qbe::ValueReference(&qbeFunction->parameters[i]), allocated, qbeType->ByteSize(module.is64Bit));
+                AddVariable(param->GetName(), allocated, {param->GetName(), param->GetType(), SemanticAnalyzer::Symbol::Kind::Variable, param->GetLine(), param->GetColumn()});
+            }
             else {
                 auto allocated = entryPoint->addAllocate(GetSize(GetQbeType(param->GetType())));
                 entryPoint->addStore(Qbe::ValueReference(&qbeFunction->parameters[i]), allocated);
@@ -194,7 +200,6 @@ namespace Oxy {
 
         auto global = module.addGlobal(primitive, value);
         AddVariable(variableDeclaration->GetName(), global, {variableDeclaration->GetName(), explicitType, SemanticAnalyzer::Symbol::Kind::Variable, variableDeclaration->GetLine(), variableDeclaration->GetColumn()});
-        return;
     }
 
     void CodeGenerator::Visit(Ast::VariableDeclaration *variableDeclaration) {
@@ -220,12 +225,30 @@ namespace Oxy {
 
         if (initializer) {
             auto value = EmitExpression(initializer);
-            getCurrentBlock()->addStore(value, allocated);
+            if (value.GetType()->IsCustomType())
+                getCurrentBlock()->addBlit(value, allocated, qbeType->ByteSize(module.is64Bit));
+            else
+                getCurrentBlock()->addStore(value, allocated);
         }
     }
 
     void CodeGenerator::Visit(Ast::StructDeclaration *structDeclaration) {
-        // TODO: Implement struct declarations in code generation.
+        std::vector<Ast::StructType::Field> fields;
+        for (const auto& field : structDeclaration->GetFields()) {
+            fields.push_back({field->GetName(), field->GetType()});
+        }
+
+        auto structType = new Ast::StructType(structDeclaration->GetName(), fields);
+        currentScope->symbols[structDeclaration->GetName()] = {structDeclaration->GetName(), structType, SemanticAnalyzer::Symbol::Kind::Struct, structDeclaration->GetLine(), structDeclaration->GetColumn()};
+
+        std::vector<Qbe::CustomTypeField> qbeFields;
+        for (const auto& field : fields) {
+            qbeFields.push_back({field.name, GetQbeType(field.type)});
+        }
+
+        auto type = module.addType(structDeclaration->GetName(), qbeFields);
+        customTypes[structDeclaration->GetName()] = type;
+        currentScope->symbols[structDeclaration->GetName()] = {structDeclaration->GetName(), structType, SemanticAnalyzer::Symbol::Kind::Struct, structDeclaration->GetLine(), structDeclaration->GetColumn()};
     }
 
     void CodeGenerator::Visit(Ast::Attribute *attribute) {
@@ -241,7 +264,11 @@ namespace Oxy {
         auto right = assignmentExpression->GetRight();
 
         auto value = EmitExpression(right);
-        getCurrentBlock()->addStore(value, left);
+
+        if (left.GetType()->IsCustomType())
+            getCurrentBlock()->addBlit(value, left, value.GetType()->ByteSize(module.is64Bit));
+        else
+            getCurrentBlock()->addStore(value, left);
     }
 
     void CodeGenerator::Visit(Ast::ReturnStatement *returnStatement) {
@@ -580,8 +607,19 @@ namespace Oxy {
             return nullptr;
         }
 
-        errors.push_back({"lol i gotta make this still", "", 0, 0});
-        return nullptr;
+        auto structType = dynamic_cast<Ast::StructType *>(sym->type);
+        if (!structType) {
+            errors.push_back({"Symbol '" + structType->GetIdentifier() + "' is not a type", "", 0, 0});
+            return nullptr;
+        }
+
+        auto it = customTypes.find(structType->GetIdentifier());
+        if (it == customTypes.end()) {
+            errors.push_back({"Type '" + structType->GetIdentifier() + "' not found in custom types", "", 0, 0});
+            return nullptr;
+        }
+
+        return it->second;
     }
 
     Type *CodeGenerator::ResolveExpressionType(Ast::Expression *expression) {
@@ -630,6 +668,67 @@ namespace Oxy {
             return cast->GetTargetType();
         }
 
+        if (auto* memberAccess = dynamic_cast<Ast::MemberAccessExpression*>(expression)) {
+            auto structType = ResolveExpressionType(memberAccess->GetObject());
+            if (!structType) {
+                errors.push_back({"Could not resolve type of struct in member access", "", memberAccess->GetLine(), memberAccess->GetColumn()});
+                return nullptr;
+            }
+
+            if (structType->GetLiteralType() != LiteralType::UserDefined) {
+                errors.push_back({"Member access on non-struct type '" + structType->ToString() + "'", "", memberAccess->GetLine(), memberAccess->GetColumn()});
+                return nullptr;
+            }
+
+            auto sym = ResolveSymbol(structType->GetIdentifier());
+            if (!sym) {
+                errors.push_back({"Undefined type: " + structType->GetIdentifier(), "", memberAccess->GetLine(), memberAccess->GetColumn()});
+                return nullptr;
+            }
+
+            auto structDef = dynamic_cast<Ast::StructType *>(sym->type);
+            if (!structDef) {
+                errors.push_back({"Symbol '" + structType->GetIdentifier() + "' is not a type", "", memberAccess->GetLine(), memberAccess->GetColumn()});
+                return nullptr;
+            }
+
+            for (const auto& field : structDef->GetFields()) {
+                if (field.name == memberAccess->GetMemberName()) {
+                    return field.type;
+                }
+            }
+
+            errors.push_back({"Struct '" + structDef->GetIdentifier() + "' does not have a member named '" + memberAccess->GetMemberName() + "'", "", memberAccess->GetLine(), memberAccess->GetColumn()});
+            return nullptr;
+        }
+
+        if (auto* structInit = dynamic_cast<Ast::StructInitializerExpression*>(expression)) {
+            auto structType = ResolveExpressionType(structInit->GetStructIdentifier());
+            if (!structType) {
+                errors.push_back({"Could not resolve type of struct in struct initializer", "", structInit->GetLine(), structInit->GetColumn()});
+                return nullptr;
+            }
+
+            if (structType->GetLiteralType() != LiteralType::UserDefined) {
+                errors.push_back({"Struct initializer for non-struct type '" + structType->ToString() + "'", "", structInit->GetLine(), structInit->GetColumn()});
+                return nullptr;
+            }
+
+            auto sym = ResolveSymbol(structType->GetIdentifier());
+            if (!sym) {
+                errors.push_back({"Undefined type: " + structType->GetIdentifier(), "", structInit->GetLine(), structInit->GetColumn()});
+                return nullptr;
+            }
+
+            auto structDef = dynamic_cast<Ast::StructType *>(sym->type);
+            if (!structDef) {
+                errors.push_back({"Symbol '" + structType->GetIdentifier() + "' is not a type", "", structInit->GetLine(), structInit->GetColumn()});
+                return nullptr;
+            }
+
+            return structType;
+        }
+
         errors.push_back({"Could not resolve type of expression", "", expression->GetLine(), expression->GetColumn()});
         return nullptr;
     }
@@ -648,6 +747,61 @@ namespace Oxy {
         }
 
         return newStr;
+    }
+
+    size_t CodeGenerator::GetStructMemberOffset(Ast::Expression *expression, const std::string &string) {
+        auto structType = ResolveExpressionType(expression);
+        if (!structType) {
+            errors.push_back({"Could not resolve type of struct in member access", "", expression->GetLine(), expression->GetColumn()});
+            return 0;
+        }
+
+        if (structType->GetLiteralType() != LiteralType::UserDefined) {
+            errors.push_back({"Member access on non-struct type '" + structType->ToString() + "'", "", expression->GetLine(), expression->GetColumn()});
+            return 0;
+        }
+
+        auto sym = ResolveSymbol(structType->GetIdentifier());
+        if (!sym) {
+            errors.push_back({"Undefined type: " + structType->GetIdentifier(), "", expression->GetLine(), expression->GetColumn()});
+            return 0;
+        }
+
+        auto structDef = dynamic_cast<Ast::StructType *>(sym->type);
+        if (!structDef) {
+            errors.push_back({"Symbol '" + structType->GetIdentifier() + "' is not a type", "", expression->GetLine(), expression->GetColumn()});
+            return 0;
+        }
+
+        size_t offset = 0;
+        for (const auto& field : structDef->GetFields()) {
+            if (field.name == string) {
+                return offset;
+            }
+            offset += GetQbeType(field.type)->ByteSize(module.is64Bit);
+        }
+
+        errors.push_back({"Struct '" + structDef->GetIdentifier() + "' does not have a member named '" + string + "'", "", expression->GetLine(), expression->GetColumn()});
+        return 0;
+    }
+
+    Qbe::ValueReference CodeGenerator::GetStructAddress(Ast::Expression *expression) {
+        if (auto *ident = dynamic_cast<Ast::IdentifierExpression *>(expression)) {
+            auto var = ResolveVariable(ident->ToString());
+            if (!var) {
+                errors.push_back({"Undefined variable: " + ident->ToString(), "", ident->GetLine(), ident->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            return *var;
+        }
+
+        if (auto *nested = dynamic_cast<Ast::NestedExpression *>(expression)) {
+            return GetStructAddress(nested->GetInner());
+        }
+
+        errors.push_back({"Expected a struct variable", "", expression->GetLine(), expression->GetColumn()});
+        return Qbe::ValueReference();
     }
 
     Qbe::ValueReference CodeGenerator::EmitExpression(Ast::Expression *expression, bool getReference) {
@@ -703,7 +857,7 @@ namespace Oxy {
 
             // We must load the value
             auto type = ResolveExpressionType(expression);
-            if (type->GetLiteralType() == LiteralType::Pointer) {
+            if (type->GetLiteralType() == LiteralType::Pointer || type->GetLiteralType() == LiteralType::UserDefined) {
                 return *var;
             }
             auto loaded = getCurrentBlock()->addLoad(*var, GetQbeType(type));
@@ -866,6 +1020,99 @@ namespace Oxy {
             }
 
             return getCurrentBlock()->addLoad(operandValue, GetQbeType(operandType->GetNestedType()));
+        }
+
+        if (auto *memberAccessExpression = dynamic_cast<Ast::MemberAccessExpression *>(expression)) {
+
+            // Get the memory offset to the member. We can then add that offset to the base address of the struct to get the address of the member.
+            auto offset = GetStructMemberOffset(memberAccessExpression->GetObject(), memberAccessExpression->GetMemberName());
+            auto base = GetStructAddress(memberAccessExpression->GetObject());
+
+            if (getReference) {
+                return getCurrentBlock()->addAdd(base, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false)));
+            }
+
+            auto memberType = ResolveExpressionType(memberAccessExpression->GetObject());
+            if (!memberType) {
+                errors.push_back({"Could not resolve type of struct in member access", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            if (memberType->GetLiteralType() != LiteralType::UserDefined) {
+                errors.push_back({"Member access on non-struct type '" + memberType->ToString() + "'", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto sym = ResolveSymbol(memberType->GetIdentifier());
+            if (!sym) {
+                errors.push_back({"Undefined type: " + memberType->GetIdentifier(), "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto structDef = dynamic_cast<Ast::StructType *>(sym->type);
+            if (!structDef) {
+                errors.push_back({"Symbol '" + memberType->GetIdentifier() + "' is not a type", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto fieldIt = std::find_if(structDef->GetFields().begin(), structDef->GetFields().end(), [&](const Ast::StructType::Field& f) {
+                return f.name == memberAccessExpression->GetMemberName();
+            });
+
+            if (fieldIt == structDef->GetFields().end()) {
+                errors.push_back({"Struct '" + structDef->GetIdentifier() + "' does not have a member named '" + memberAccessExpression->GetMemberName() + "'", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto memberTypeQbe = GetQbeType(fieldIt->type);
+            return getCurrentBlock()->addLoad(getCurrentBlock()->addAdd(base, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false))), memberTypeQbe);
+        }
+
+        if (auto *structInit = dynamic_cast<Ast::StructInitializerExpression *>(expression)) {
+            auto allocated = getCurrentBlock()->addAllocate(Qbe::ValueReference(new Qbe::Literal((int64_t)GetQbeType(ResolveExpressionType(structInit->GetStructIdentifier()))->ByteSize(module.is64Bit), false)));
+            auto structType = ResolveExpressionType(structInit->GetStructIdentifier());
+            if (!structType) {
+                errors.push_back({"Could not resolve type of struct in struct initializer", "", structInit->GetLine(), structInit->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            if (structType->GetLiteralType() != LiteralType::UserDefined) {
+                errors.push_back({"Struct initializer for non-struct type '" + structType->ToString() + "'", "", structInit->GetLine(), structInit->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto sym = ResolveSymbol(structType->GetIdentifier());
+            if (!sym) {
+                errors.push_back({"Undefined type: " + structType->GetIdentifier(), "", structInit->GetLine(), structInit->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto structDef = dynamic_cast<Ast::StructType *>(sym->type);
+            if (!structDef) {
+                errors.push_back({"Symbol '" + structType->GetIdentifier() + "' is not a type", "", structInit->GetLine(), structInit->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            for (const auto& fieldInit : structInit->GetInitializers()) {
+                auto fieldIt = std::find_if(structDef->GetFields().begin(), structDef->GetFields().end(), [&](const Ast::StructType::Field& f) {
+                    return f.name == fieldInit.first;
+                });
+
+                if (fieldIt == structDef->GetFields().end()) {
+                    errors.push_back({"Struct '" + structDef->GetIdentifier() + "' does not have a member named '" + fieldInit.first + "'", "", structInit->GetLine(), structInit->GetColumn()});
+                    continue;
+                }
+
+                auto offset = GetStructMemberOffset(structInit->GetStructIdentifier(), fieldInit.first);
+                auto value = EmitExpression(fieldInit.second);
+                if (value.GetType()->IsCustomType())
+                    getCurrentBlock()->addBlit(value, getCurrentBlock()->addAdd(allocated, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false))), GetQbeType(ResolveExpressionType(fieldInit.second))->ByteSize(module.is64Bit));
+                else
+                    getCurrentBlock()->addStore(value, getCurrentBlock()->addAdd(allocated, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false))));
+            }
+
+            allocated.value.local->type = GetQbeType(structType);
+            return allocated;
         }
 
         errors.push_back({"Expression type not supported yet in code generation", "", expression->GetLine(), expression->GetColumn()});

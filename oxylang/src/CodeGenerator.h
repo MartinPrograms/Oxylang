@@ -8,6 +8,7 @@
 
 #include <utility>
 #include "SemanticAnalyzer.h"
+#include "StructType.h"
 
 namespace Oxy {
     class CodeGenerator : public Visitor {
@@ -77,12 +78,16 @@ namespace Oxy {
         std::unordered_map<std::string, Qbe::Function *> functions{};
         Scope *currentScope = new Scope(nullptr);
         Qbe::Function* currentFunction;
+        std::unordered_map<std::string, Qbe::CustomType *> customTypes{};
 
         Qbe::ITypeDefinition *GetQbeType(Type* type);
 
         Type *ResolveExpressionType(Ast::Expression* expression);
 
         std::string escapeStringLiteral(const std::string & get);
+
+        size_t GetStructMemberOffset(Ast::Expression * expression, const std::string & string);
+        Qbe::ValueReference GetStructAddress(Ast::Expression * expression);
 
         Qbe::ValueReference EmitExpression(Ast::Expression* expression, bool getReference = false);
 
@@ -165,6 +170,15 @@ namespace Oxy {
         std::string GetLabel(std::string prefix) {
             static uint64_t labelCounter = 0;
             return fmt::format("{}_{}", prefix, labelCounter++);
+        }
+
+        // Mangles a type name
+        std::string MangleName(Ast::StructType *structType) {
+            auto mangled = "struct_" + structType->GetName();
+            for (const auto& field : structType->GetFields()) {
+                mangled += "_" + field.name;
+            }
+            return mangled;
         }
     };
 } // Oxy
