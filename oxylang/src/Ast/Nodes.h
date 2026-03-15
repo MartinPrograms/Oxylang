@@ -29,6 +29,7 @@
 #include "ImportStatement.h"
 #include "DereferenceAssignmentStatement.h"
 #include "TypeExpression.h"
+#include "StructInitializerExpression.h"
 
 #include "Root.h"
 

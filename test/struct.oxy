@@ -1,0 +1,31 @@
+@extern @symbol("sqrtf") fn sqrtf(x: f32) -> f32;
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
+
+struct Vector2 {
+	x: f32;
+	y: f32;
+}
+
+fn length(this: Vector2) -> f32 {
+	return sqrtf(this.x * this.x + this.y * this.y);
+}
+
+fn distance(this: Vector2, other: Vector2) -> f32 {
+	let dx = this.x - other.x;
+	let dy = this.y - other.y;
+	return sqrtf(dx * dx + dy * dy);
+}
+
+fn print_vector(this: Vector2) {
+	printf("Vector2(x: %f, y: %f)\n", this.x, this.y);
+}
+
+@entry 
+fn main() -> u8 {
+	let v = Vector2 { x: 3.0f, y: 4.0f };
+	print_vector(v);
+	let len = length(v);
+	printf("Length: %f\n", len);
+	return 0u8;
+}
+

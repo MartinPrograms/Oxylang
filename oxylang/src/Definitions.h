@@ -373,16 +373,16 @@ namespace Oxy {
 
     // Some other syntax ( { }, ;, , )
     enum class Syntax {
-        LeftBrace,
-        RightBrace,
-        Semicolon,
-        Colon,
-        At,
-        Comma,
-        LeftParen,
-        RightParen,
-        LeftBracket,
-        RightBracket
+        LeftBrace, // {
+        RightBrace, // }
+        Semicolon, // ;
+        Colon, // :
+        At, // @
+        Comma, // ,
+        LeftParen, // (
+        RightParen, // )
+        LeftBracket, // [
+        RightBracket // ]
     };
 
     inline std::map<Syntax, std::string> SyntaxToString = {

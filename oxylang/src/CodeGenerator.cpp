@@ -530,6 +530,10 @@ namespace Oxy {
         getCurrentBlock()->addStore(value, pointer);
     }
 
+    void CodeGenerator::Visit(Ast::StructInitializerExpression *structInitializerExpression) {
+        // Does nothing yet.
+    }
+
     void CodeGenerator::Visit(Ast::TypeExpression *typeExpression) {
     }
 

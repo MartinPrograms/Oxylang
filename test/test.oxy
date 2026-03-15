@@ -33,6 +33,8 @@ let KEY_S: i32 = 83;
 let KEY_UP: i32 = 265;
 let KEY_DOWN: i32 = 264;
 
+let SCORE_TO_WIN: i32 = 10;
+
 fn handle_movement(left_paddle_y: ptr<i32>, right_paddle_y: ptr<i32>) {
     let PADDLE_MAX_Y: i32 = 600 - PADDLE_HEIGHT;
     let PADDLE_MIN_Y: i32 = 0;
@@ -85,7 +87,17 @@ fn random_direction() -> i32 {
     return 0;
 }
 
-fn handle_ball_movement(ball_x: ptr<i32>, ball_y: ptr<i32>, ball_speed_x: ptr<i32>, ball_speed_y: ptr<i32>, ball_direction_x: ptr<i32>, ball_direction_y: ptr<i32>, left_paddle_y: ptr<i32>, right_paddle_y: ptr<i32>, left_score: ptr<i32>, right_score: ptr<i32>) {
+fn handle_ball_movement(ball_x: ptr<i32>,
+                        ball_y: ptr<i32>,
+                        ball_speed_x: ptr<i32>,
+                        ball_speed_y: ptr<i32>,
+                        ball_direction_x: ptr<i32>,
+                        ball_direction_y: ptr<i32>,
+                        left_paddle_y: ptr<i32>,
+                        right_paddle_y: ptr<i32>,
+                        left_score: ptr<i32>,
+                        right_score: ptr<i32>
+                    ) {
     let BALL_MAX_X: i32 = 800 - BALL_SIZE;
     let BALL_MIN_X: i32 = 0;
     let BALL_MAX_Y: i32 = 600 - BALL_SIZE;

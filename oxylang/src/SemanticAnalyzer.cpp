@@ -1,5 +1,7 @@
 #include "SemanticAnalyzer.h"
 
+#include <algorithm>
+
 #include "ImportType.h"
 #include "StructType.h"
 
@@ -432,6 +434,41 @@ namespace Oxy {
 
     }
 
+    void SemanticAnalyzer::Visit(Ast::StructInitializerExpression *structInitializerExpression) {
+        auto identifier = structInitializerExpression->GetStructIdentifier();
+        auto type = identifier->ToString();
+
+        auto sym = ResolveSymbol(type);
+        if (sym) {
+            if (sym->kind != Symbol::Kind::Struct) {
+                errors.push_back({"Type '" + type + "' is not a struct", "", structInitializerExpression->GetLine(), structInitializerExpression->GetColumn()});
+            }
+        }
+        else {
+            errors.push_back({"Undefined struct: " + type, "", structInitializerExpression->GetLine(), structInitializerExpression->GetColumn()});
+        }
+
+        auto structType = dynamic_cast<Ast::StructType*>(sym->type);
+        if (!structType) {
+            errors.push_back({"Symbol '" + type + "' is not a struct type", "", structInitializerExpression->GetLine(), structInitializerExpression->GetColumn()});
+            return;
+        }
+
+        for (const auto& field : structInitializerExpression->GetInitializers()) {
+            // Verify the field exists in the struct definition.
+            auto it = std::find_if(structType->GetFields().begin(), structType->GetFields().end(), [&](const Ast::StructType::Field& f) {
+                return f.name == field.first;
+            });
+
+            if (it == structType->GetFields().end()) {
+                errors.push_back({"Struct '" + type + "' has no field named '" + field.first + "'", "", field.second->GetLine(), field.second->GetColumn()});
+                continue;
+            }
+
+            field.second->Accept(this);
+        }
+    }
+
     void SemanticAnalyzer::Visit(Ast::TypeExpression *typeExpression) {
     }
 
@@ -497,6 +534,34 @@ namespace Oxy {
             auto* operandType = ResolveExpressionType(dereference->GetOperand());
             if (operandType && operandType->GetLiteralType() == LiteralType::Pointer) {
                 return operandType->GetNestedType();
+            }
+        }
+
+        if (auto* memberAccessExpression = dynamic_cast<Ast::MemberAccessExpression*>(expression)) {
+            auto* objectType = ResolveExpressionType(memberAccessExpression->GetObject());
+            if (objectType && objectType->GetLiteralType() == LiteralType::UserDefined) {
+                auto* sym = ResolveSymbol(objectType->GetIdentifier());
+                if (sym && sym->kind == Symbol::Kind::Struct) {
+                    auto* structType = dynamic_cast<Ast::StructType*>(sym->type);
+                    if (structType) {
+                        auto fieldName = memberAccessExpression->GetMemberName();
+                        auto it = std::find_if(structType->GetFields().begin(), structType->GetFields().end(), [&](const Ast::StructType::Field& f) {
+                            return f.name == fieldName;
+                        });
+
+                        if (it != structType->GetFields().end()) {
+                            return it->type;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (auto* structInit = dynamic_cast<Ast::StructInitializerExpression*>(expression)) {
+            auto identifier = structInit->GetStructIdentifier();
+            auto sym = ResolveSymbol(identifier->ToString());
+            if (sym && sym->kind == Symbol::Kind::Struct) {
+                return sym->type;
             }
         }
 

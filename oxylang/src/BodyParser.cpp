@@ -437,6 +437,50 @@ namespace Oxy {
                 continue;
             }
 
+            // This is a struct initializer "identifier<typeArgs>{field: value, ...}"
+            if (token.kind == Token::Kind::Syntax && std::get<Syntax>(token.value) == Syntax::LeftBrace) {
+                Advance(); // consume '{'
+                std::vector<std::pair<std::string, Ast::Expression*>> fields;
+                if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::LeftBrace) {
+                    Advance(); // consume '}'
+                } else {
+                    while (true) {
+                        if (Peek().kind != Token::Kind::Identifier) {
+                            errors->push_back({fmt::format("Expected field name in struct initializer"), "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+                        std::string fieldName = std::get<std::string>(Match(Token::Kind::Identifier).value);
+                        Advance(); // consume field name
+
+                        if (!expectSyntax(Syntax::Colon)) {
+                            errors->push_back({fmt::format("Expected ':' after field name in struct initializer"), "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+
+                        auto fieldValue = parseExpression();
+                        if (!fieldValue) {
+                            errors->push_back({fmt::format("Expected expression for field value in struct initializer"), "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+
+                        fields.push_back({fieldName, fieldValue});
+
+                        if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::Comma) {
+                            Advance(); // consume ','
+                        } else if (Peek().kind == Token::Kind::Syntax && std::get<Syntax>(Peek().value) == Syntax::RightBrace) {
+                            Advance(); // consume '}'
+                            break;
+                        } else {
+                            errors->push_back({"Expected ',' or '}' in struct initializer", "", Peek().line, Peek().column});
+                            return nullptr;
+                        }
+                    }
+                }
+
+                left = new Ast::StructInitializerExpression(left, fields, token.line, token.column);
+                continue;
+            }
+
             // Subscript []
             if (token.kind == Token::Kind::Syntax && std::get<Syntax>(token.value) == Syntax::LeftBracket) {
                 Advance(); // consume '['
