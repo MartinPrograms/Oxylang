@@ -43,10 +43,10 @@ fn main() -> u8 {
 	let vector = nested.vec;
 	printf("Nested vector length: %f\n", cast<f64>(length(vector)));
 
-    let nested_nested = NestedNestedTest { nested: addr(nested), name: "TestName" };
-    printf("Nested nested name: %s\n", nested_nested.name);
-    let nested_value = deref(nested_nested.nested).value;
-    printf("Nested nested value: %d\n", nested_value);
+	let nested_nested = NestedNestedTest { nested: addr(nested), name: "TestName" };
+	printf("Nested nested name: %s\n", nested_nested.name);
+	let nested_value = deref(nested_nested.nested).value;
+	printf("Nested nested value: %d\n", nested_value);
 
 	return 0u8;
 }
