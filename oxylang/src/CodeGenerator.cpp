@@ -145,6 +145,7 @@ namespace Oxy {
             }
         }
 
+        getCurrentBlock()->addComment("Begin function '" + function->GetName() + "' body");
         for (const auto& stmt : function->GetBody()) {
             stmt->Accept(this);
         }
@@ -154,6 +155,7 @@ namespace Oxy {
                 getCurrentBlock()->addReturn();
             }
         }
+        getCurrentBlock()->addComment("End function '" + function->GetName() + "' body");
 
         ExitScope();
         isGlobalScope = true;
@@ -234,7 +236,7 @@ namespace Oxy {
     void CodeGenerator::addMemcpy(const Qbe::ValueReference &value, const Qbe::ValueReference &allocated,
         long byte_size) {
         auto memcpyFunc = functions["memcpy"];
-        getCurrentBlock()->addCall(memcpyFunc, {allocated, value, Qbe::CreateLiteral(byte_size)});
+        getCurrentBlock()->addCall(memcpyFunc, {allocated, value, Qbe::CreateLiteral((int64_t)byte_size)});
     }
 
     void CodeGenerator::Visit(Ast::VariableDeclaration *variableDeclaration) {
@@ -356,6 +358,8 @@ namespace Oxy {
     }
 
     void CodeGenerator::Visit(Ast::FunctionCallExpression *functionCallExpression) {
+        getCurrentBlock()->addComment("Begin function call '" + functionCallExpression->ToString() + "'");
+
         auto calleeExpr = functionCallExpression->GetCallee();
         auto identifierExpr = dynamic_cast<Ast::IdentifierExpression*>(calleeExpr);
         if (!identifierExpr) {
@@ -376,6 +380,8 @@ namespace Oxy {
 
         auto function = it->second;
         getCurrentBlock()->addCall(function, args);
+
+        getCurrentBlock()->addComment("End function call '" + functionCallExpression->ToString() + "'");
     }
 
     void CodeGenerator::Visit(Ast::PostfixExpression *postfixExpression) {
@@ -586,10 +592,13 @@ namespace Oxy {
     }
 
     void CodeGenerator::Visit(Ast::DereferenceAssignmentStatement *dereferenceAssignmentStatement) {
-        auto pointer = EmitExpression(dereferenceAssignmentStatement->GetTarget(), true);
+        auto address = EmitExpression(dereferenceAssignmentStatement->GetTarget());
         auto value = EmitExpression(dereferenceAssignmentStatement->GetValue());
 
-        getCurrentBlock()->addStore(value, pointer);
+        if (address.GetType()->IsCustomType())
+            addMemcpy(value, address, value.GetType()->ByteSize(module.is64Bit));
+        else
+            getCurrentBlock()->addStore(value, address);
     }
 
     void CodeGenerator::Visit(Ast::StructInitializerExpression *structInitializerExpression) {
@@ -764,6 +773,17 @@ namespace Oxy {
             return structType;
         }
 
+        if (auto* sizeofType = dynamic_cast<Ast::SizeOfExpression*>(expression)) {
+            return new Type(LiteralType::U64); // sizeof always returns a 64-bit unsigned integer
+        }
+
+        if (auto* dereference = dynamic_cast<Ast::DereferenceExpression*>(expression)) {
+            auto pointerType = ResolveExpressionType(dereference->GetOperand());
+            if (pointerType && pointerType->GetLiteralType() == LiteralType::Pointer && pointerType->GetNestedType()) {
+                return pointerType->GetNestedType();
+            }
+        }
+
         errors.push_back({"Could not resolve type of expression", "", expression->GetLine(), expression->GetColumn()});
         return nullptr;
     }
@@ -839,6 +859,18 @@ namespace Oxy {
             auto address = GetStructAddress(memberAccess->GetObject());
             auto offset = GetStructMemberOffset(memberAccess->GetObject(), memberAccess->GetMemberName());
             return getCurrentBlock()->addAdd(address, Qbe::CreateLiteral((int64_t)offset));
+        }
+
+        if (auto *dereference = dynamic_cast<Ast::DereferenceExpression *>(expression)) {
+            return EmitExpression(dereference->GetOperand());
+        }
+
+        if (auto *subscript = dynamic_cast<Ast::SubscriptExpression *>(expression)) {
+            auto arrayAddress = GetStructAddress(subscript->GetArray());
+            auto indexValue = EmitExpression(subscript->GetIndex());
+            auto elementSize = GetQbeType(ResolveExpressionType(subscript->GetArray())->GetNestedType())->ByteSize(module.is64Bit);
+            auto offset = getCurrentBlock()->addMul(indexValue, Qbe::CreateLiteral((int64_t)elementSize));
+            return getCurrentBlock()->addAdd(arrayAddress, offset);
         }
 
         errors.push_back({"Unsupported expression for getting struct address", "", expression->GetLine(), expression->GetColumn()});
@@ -1042,7 +1074,12 @@ namespace Oxy {
                 }
 
                 return *var;
-            } else {
+            } else if (auto *memberAccess = dynamic_cast<Ast::MemberAccessExpression *>(operand)) {
+                return GetStructAddress(memberAccess);
+            } else if (auto *subscript = dynamic_cast<Ast::SubscriptExpression *>(operand)) {
+                return GetStructAddress(subscript);
+            }
+            else {
                 errors.push_back({"Address-of operator can only be applied to variables for now", "", operand->GetLine(), operand->GetColumn()});
                 return Qbe::ValueReference();
             }
@@ -1060,7 +1097,12 @@ namespace Oxy {
                 return operandValue;
             }
 
-            return getCurrentBlock()->addLoad(operandValue, GetQbeType(operandType->GetNestedType()));
+            auto innerType = operandType->GetNestedType();
+            if (innerType->GetLiteralType() == LiteralType::UserDefined) {
+                return operandValue;
+            }
+
+            return getCurrentBlock()->addLoad(operandValue, GetQbeType(innerType));
         }
 
         if (auto *memberAccessExpression = dynamic_cast<Ast::MemberAccessExpression *>(expression)) {
@@ -1164,6 +1206,17 @@ namespace Oxy {
 
             allocated.value.local->type = GetQbeType(structType);
             return allocated;
+        }
+
+        if (auto* sizeofExpr = dynamic_cast<Ast::SizeOfExpression*>(expression)) {
+            auto type = sizeofExpr->GetType();
+            auto qbeType = GetQbeType(type);
+            if (!qbeType) {
+                errors.push_back({"Could not resolve type in sizeof expression", "", sizeofExpr->GetLine(), sizeofExpr->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            return Qbe::ValueReference(new Qbe::Literal((int64_t)qbeType->ByteSize(module.is64Bit), false));
         }
 
         errors.push_back({"Expression type not supported yet in code generation", "", expression->GetLine(), expression->GetColumn()});

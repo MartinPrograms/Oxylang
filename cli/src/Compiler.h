@@ -13,7 +13,7 @@ public:
     };
     Compiler(Options options);
 
-    void Compile();
+    int Compile();
 private:
     Options options;
 };

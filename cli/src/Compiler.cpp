@@ -13,7 +13,7 @@
 Compiler::Compiler(Options options) : options(std::move(options)) {
 }
 
-void Compiler::Compile() {
+int Compiler::Compile() {
     spdlog::info("Compiling {} to {}", options.inputFile, options.outputFile);
 
     Oxy::Tokenizer tokenizer(options.sourceCode);
@@ -27,7 +27,7 @@ void Compiler::Compile() {
             spdlog::error(error.ToString());
         }
 
-        return;
+        return 1;
     }
 
     // Log all tokens
@@ -44,7 +44,7 @@ void Compiler::Compile() {
         for (const auto& error : parser.GetErrors()) {
             spdlog::error(error.ToString());
         }
-        return;
+        return 1;
     }
 
     spdlog::info("Root AST:\n{}", ast.ToString());
@@ -57,7 +57,7 @@ void Compiler::Compile() {
         for (const auto& error : analyzer->GetErrors()) {
             spdlog::error(error.ToString());
         }
-        return;
+        return 1;
     }
 
     for (const auto &import : analysis.imports) {
@@ -95,18 +95,19 @@ void Compiler::Compile() {
         for (const auto& error : codegen->GetErrors()) {
             spdlog::error(error.ToString());
         }
-        return;
+        return 1;
     }
 
     // Write the generated code to the output file.
     std::ofstream outFile(options.outputFile);
     if (!outFile) {
         spdlog::error("Failed to open output file: {}", options.outputFile);
-        return;
+        return 1;
     }
 
     outFile << code;
     outFile.close();
 
     spdlog::info("Compilation successful. Output written to {}", options.outputFile);
+    return 0;
 }

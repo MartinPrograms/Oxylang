@@ -523,6 +523,10 @@ namespace Oxy {
             }
         }
 
+        if (auto* sizeofExpression = dynamic_cast<Ast::SizeOfExpression*>(expression)) {
+            return new Type(LiteralType::U64); // sizeof always returns a u64
+        }
+
         if (auto* addressOf = dynamic_cast<Ast::AddressOfExpression*>(expression)) {
             auto* operandType = ResolveExpressionType(addressOf->GetOperand());
             if (operandType) {

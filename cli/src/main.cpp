@@ -36,5 +36,5 @@ int main(int argc, char* argv[]) {
     }
 
     Compiler compiler({inputSource, inputFile, outputFile, is32Bit});
-    compiler.Compile();
+    return compiler.Compile();
 }
