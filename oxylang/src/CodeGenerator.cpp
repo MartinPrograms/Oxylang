@@ -14,6 +14,28 @@ namespace Oxy {
         return module.emit();
     }
 
+    void CodeGenerator::SetupStandardLibrary() {
+        auto memcpy = module.defineFunction("memcpy",
+            new Qbe::VoidType(),
+            {
+                Qbe::Local("dest", new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer, false), true),
+                Qbe::Local("src", new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer, false), true),
+                Qbe::Local("n", new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer, false), true)
+            },
+        false);
+        functions["memcpy"] = memcpy;
+
+        auto memset = module.defineFunction("memset",
+            new Qbe::VoidType(),
+            {
+                Qbe::Local("dest", new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer, false), true),
+                Qbe::Local("value", new Qbe::Primitive(Qbe::TypeDefinitionKind::Int32, false), true),
+                Qbe::Local("n", new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer, false), true)
+            },
+        false);
+        functions["memset"] = memset;
+    }
+
     void CodeGenerator::Visit(Ast::Root *root) {
         for (const auto& import : root->GetImports()) {
             Visit(import);
@@ -27,10 +49,17 @@ namespace Oxy {
             Visit(varDecl);
         }
 
+        SetupStandardLibrary();
+
         for (const auto& func : root->GetFunctions()) {
             std::vector<Qbe::Local> args;
             for (const auto& param : func->GetParameters()) {
-                args.push_back(Qbe::Local(param->GetName(), GetQbeType(param->GetType()), true));
+                if (param->GetType()->GetLiteralType() == LiteralType::UserDefined) {
+                    args.push_back(Qbe::Local(param->GetName(), new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer, false), true));
+                }
+                else {
+                    args.push_back(Qbe::Local(param->GetName(), GetQbeType(param->GetType()), true));
+                }
             }
 
             bool isVariadic = func->IsVariadic();
@@ -106,7 +135,7 @@ namespace Oxy {
             else if (param->GetType()->GetLiteralType() == LiteralType::UserDefined) {
                 auto qbeType = GetQbeType(param->GetType());
                 auto allocated = entryPoint->addAllocate(GetSize(qbeType));
-                entryPoint->addBlit(Qbe::ValueReference(&qbeFunction->parameters[i]), allocated, qbeType->ByteSize(module.is64Bit));
+                addMemcpy(Qbe::ValueReference(&qbeFunction->parameters[i]), allocated, (long)qbeType->ByteSize(module.is64Bit));
                 AddVariable(param->GetName(), allocated, {param->GetName(), param->GetType(), SemanticAnalyzer::Symbol::Kind::Variable, param->GetLine(), param->GetColumn()});
             }
             else {
@@ -202,6 +231,12 @@ namespace Oxy {
         AddVariable(variableDeclaration->GetName(), global, {variableDeclaration->GetName(), explicitType, SemanticAnalyzer::Symbol::Kind::Variable, variableDeclaration->GetLine(), variableDeclaration->GetColumn()});
     }
 
+    void CodeGenerator::addMemcpy(const Qbe::ValueReference &value, const Qbe::ValueReference &allocated,
+        long byte_size) {
+        auto memcpyFunc = functions["memcpy"];
+        getCurrentBlock()->addCall(memcpyFunc, {allocated, value, Qbe::CreateLiteral(byte_size)});
+    }
+
     void CodeGenerator::Visit(Ast::VariableDeclaration *variableDeclaration) {
         auto explicitType = variableDeclaration->GetType();
         auto initializer = variableDeclaration->GetInitializer();
@@ -226,7 +261,7 @@ namespace Oxy {
         if (initializer) {
             auto value = EmitExpression(initializer);
             if (value.GetType()->IsCustomType())
-                getCurrentBlock()->addBlit(value, allocated, qbeType->ByteSize(module.is64Bit));
+                addMemcpy(value, allocated, qbeType->ByteSize(module.is64Bit));
             else
                 getCurrentBlock()->addStore(value, allocated);
         }
@@ -266,7 +301,7 @@ namespace Oxy {
         auto value = EmitExpression(right);
 
         if (left.GetType()->IsCustomType())
-            getCurrentBlock()->addBlit(value, left, value.GetType()->ByteSize(module.is64Bit));
+            addMemcpy(value, left, value.GetType()->ByteSize(module.is64Bit));
         else
             getCurrentBlock()->addStore(value, left);
     }
@@ -587,10 +622,10 @@ namespace Oxy {
                     return new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer); // we lose nested information, but that does not matter.
                 case LiteralType::F32:
                 case LiteralType::Float:
-                    return new Qbe::Primitive(Qbe::TypeDefinitionKind::Float32);
+                    return new Qbe::Primitive(Qbe::TypeDefinitionKind::Float32, true);
                 case LiteralType::F64:
                 case LiteralType::Double:
-                    return new Qbe::Primitive(Qbe::TypeDefinitionKind::Float64);
+                    return new Qbe::Primitive(Qbe::TypeDefinitionKind::Float64, true);
                 case LiteralType::Void:
                     return new Qbe::VoidType();
 
@@ -800,7 +835,13 @@ namespace Oxy {
             return GetStructAddress(nested->GetInner());
         }
 
-        errors.push_back({"Expected a struct variable", "", expression->GetLine(), expression->GetColumn()});
+        if (auto *memberAccess = dynamic_cast<Ast::MemberAccessExpression *>(expression)) {
+            auto address = GetStructAddress(memberAccess->GetObject());
+            auto offset = GetStructMemberOffset(memberAccess->GetObject(), memberAccess->GetMemberName());
+            return getCurrentBlock()->addAdd(address, Qbe::CreateLiteral((int64_t)offset));
+        }
+
+        errors.push_back({"Unsupported expression for getting struct address", "", expression->GetLine(), expression->GetColumn()});
         return Qbe::ValueReference();
     }
 
@@ -832,7 +873,7 @@ namespace Oxy {
                     return Qbe::ValueReference(new Qbe::Literal((int64_t)std::get<uint64_t>(value), true));
                 case LiteralType::F32:
                 case LiteralType::Float:
-                    return Qbe::ValueReference(new Qbe::Literal(std::get<double>(value)));
+                    return Qbe::ValueReference(new Qbe::Literal((float)std::get<double>(value)));
                 case LiteralType::F64:
                 case LiteralType::Double:
                     return Qbe::ValueReference(new Qbe::Literal(std::get<double>(value)));
@@ -1065,7 +1106,17 @@ namespace Oxy {
             }
 
             auto memberTypeQbe = GetQbeType(fieldIt->type);
-            return getCurrentBlock()->addLoad(getCurrentBlock()->addAdd(base, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false))), memberTypeQbe);
+            auto fieldAddress = getCurrentBlock()->addAdd(base, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false)));
+
+            // Struct-typed fields are already addressable, load would dereference the struct as a pointer
+            if (fieldIt->type->GetLiteralType() == LiteralType::UserDefined) {
+                auto dest = getCurrentBlock()->addAllocate(Qbe::ValueReference(new Qbe::Literal((int64_t)memberTypeQbe->ByteSize(module.is64Bit), false)));
+                dest.value.local->type = memberTypeQbe;
+                addMemcpy(fieldAddress, dest, memberTypeQbe->ByteSize(module.is64Bit));
+                return dest;
+            }
+
+            return getCurrentBlock()->addLoad(fieldAddress, memberTypeQbe);
         }
 
         if (auto *structInit = dynamic_cast<Ast::StructInitializerExpression *>(expression)) {
@@ -1106,7 +1157,7 @@ namespace Oxy {
                 auto offset = GetStructMemberOffset(structInit->GetStructIdentifier(), fieldInit.first);
                 auto value = EmitExpression(fieldInit.second);
                 if (value.GetType()->IsCustomType())
-                    getCurrentBlock()->addBlit(value, getCurrentBlock()->addAdd(allocated, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false))), GetQbeType(ResolveExpressionType(fieldInit.second))->ByteSize(module.is64Bit));
+                    addMemcpy(value, getCurrentBlock()->addAdd(allocated, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false))), GetQbeType(ResolveExpressionType(fieldInit.second))->ByteSize(module.is64Bit));
                 else
                     getCurrentBlock()->addStore(value, getCurrentBlock()->addAdd(allocated, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false))));
             }

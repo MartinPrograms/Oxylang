@@ -6,6 +6,16 @@ struct Vector2 {
 	y: f32;
 }
 
+struct NestedTest {
+	vec: Vector2;
+	value: i32;
+}
+
+struct NestedNestedTest {
+	nested: ptr<NestedTest>;
+	name: ptr<u8>; // null terminated string
+}
+
 fn length(this: Vector2) -> f32 {
 	return sqrtf(this.x * this.x + this.y * this.y);
 }
@@ -17,7 +27,7 @@ fn distance(this: Vector2, other: Vector2) -> f32 {
 }
 
 fn print_vector(this: Vector2) {
-	printf("Vector2(x: %f, y: %f)\n", this.x, this.y);
+	printf("Vector2(x: %f, y: %f)\n", cast<f64>(this.x), cast<f64>(this.y));
 }
 
 @entry 
@@ -25,7 +35,19 @@ fn main() -> u8 {
 	let v = Vector2 { x: 3.0f, y: 4.0f };
 	print_vector(v);
 	let len = length(v);
-	printf("Length: %f\n", len);
+	printf("Length: %f\n", cast<f64>(len));
+	
+	let nested = NestedTest { vec: Vector2 { x: 1.0f, y: 2.0f }, value: 42 };
+	let value = nested.value;
+	printf("Nested value: %d\n", value);
+	let vector = nested.vec;
+	printf("Nested vector length: %f\n", cast<f64>(length(vector)));
+
+    let nested_nested = NestedNestedTest { nested: addr(nested), name: "TestName" };
+    printf("Nested nested name: %s\n", nested_nested.name);
+    let nested_value = deref(nested_nested.nested).value;
+    printf("Nested nested value: %d\n", nested_value);
+
 	return 0u8;
 }
 

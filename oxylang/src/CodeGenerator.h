@@ -31,11 +31,15 @@ namespace Oxy {
 
         [[nodiscard]] const std::vector<Error>& GetErrors() const { return errors; }
 
+        void SetupStandardLibrary();
+
         void Visit(Ast::Root *root) override;
         void Visit(Ast::Function *function) override;
 
         void EmitGlobal(Ast::VariableDeclaration *variableDeclaration, Type *explicitType,
                         Ast::Expression *initializer);
+
+        void addMemcpy(const Qbe::ValueReference & value, const Qbe::ValueReference & allocated, long byte_size);
 
         void Visit(Ast::VariableDeclaration *variableDeclaration) override;
         void Visit(Ast::StructDeclaration *structDeclaration) override;
