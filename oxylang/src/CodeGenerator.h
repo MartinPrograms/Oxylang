@@ -36,6 +36,8 @@ namespace Oxy {
         void Visit(Ast::Root *root) override;
         void Visit(Ast::Function *function) override;
 
+        void RegisterFunctionType(const std::string & name, Type * explicit_type);
+
         void EmitGlobal(Ast::VariableDeclaration *variableDeclaration, Type *explicitType,
                         Ast::Expression *initializer);
 
@@ -57,6 +59,9 @@ namespace Oxy {
         void Visit(Ast::AllocateExpression *allocateExpression) override;
         void Visit(Ast::FreeStatement *freeStatement) override;
         void Visit(Ast::UnaryExpression *unaryExpression) override;
+
+        Qbe::ValueReference ResolveFunction(const std::string &string, std::size_t size);
+
         void Visit(Ast::FunctionCallExpression *functionCallExpression) override;
         void Visit(Ast::PostfixExpression *postfixExpression) override;
         void Visit(Ast::SubscriptExpression *subscriptExpression) override;
@@ -73,6 +78,7 @@ namespace Oxy {
         void Visit(Type *type) override;
         void Visit(Ast::DereferenceAssignmentStatement *dereferenceAssignmentStatement) override;
         void Visit(Ast::StructInitializerExpression *structInitializerExpression) override;
+        void Visit(Ast::PointerMemberAccessExpression *pointerMemberAccessExpression) override;
         void Visit(Ast::TypeExpression *typeExpression) override;
 
     private:

@@ -98,6 +98,7 @@ namespace Oxy {
         void Visit(Ast::ContinueStatement *continueStatement) override;
         void Visit(Ast::DereferenceAssignmentStatement *dereferenceAssignmentStatement) override;
         void Visit(Ast::StructInitializerExpression *structInitializerExpression) override;
+        void Visit(Ast::PointerMemberAccessExpression *pointerMemberAccessExpression) override;
         void Visit(Ast::TypeExpression *typeExpression) override;
 
     private:

@@ -15,7 +15,7 @@ namespace Oxy {
     }
 
     void CodeGenerator::SetupStandardLibrary() {
-        auto memcpy = module.defineFunction("memcpy",
+        auto memcpy = module.defineFunction("$memcpy",
             new Qbe::VoidType(),
             {
                 Qbe::Local("dest", new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer, false), true),
@@ -25,7 +25,7 @@ namespace Oxy {
         false);
         functions["memcpy"] = memcpy;
 
-        auto memset = module.defineFunction("memset",
+        auto memset = module.defineFunction("$memset",
             new Qbe::VoidType(),
             {
                 Qbe::Local("dest", new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer, false), true),
@@ -161,6 +161,16 @@ namespace Oxy {
         isGlobalScope = true;
     }
 
+    void CodeGenerator::RegisterFunctionType(const std::string &get_name, Type *explicit_type) {
+        auto funcType = dynamic_cast<FunctionType *>(explicit_type);
+        if (!funcType) {
+            errors.push_back({"Type of function '" + get_name + "' is not a function type", "", 0, 0});
+            return;
+        }
+
+        currentScope->symbols[get_name] = {get_name, explicit_type, SemanticAnalyzer::Symbol::Kind::Function, 0, 0};
+    }
+
     void CodeGenerator::EmitGlobal(Ast::VariableDeclaration *variableDeclaration, Type *explicitType, Ast::Expression *initializer) {
         auto qbeType = GetQbeType(explicitType);
 
@@ -231,6 +241,11 @@ namespace Oxy {
 
         auto global = module.addGlobal(primitive, value);
         AddVariable(variableDeclaration->GetName(), global, {variableDeclaration->GetName(), explicitType, SemanticAnalyzer::Symbol::Kind::Variable, variableDeclaration->GetLine(), variableDeclaration->GetColumn()});
+
+        if (explicitType->GetLiteralType() == LiteralType::Function) {
+            // We need to register this as a function too
+            RegisterFunctionType(variableDeclaration->GetName(), explicitType);
+        }
     }
 
     void CodeGenerator::addMemcpy(const Qbe::ValueReference &value, const Qbe::ValueReference &allocated,
@@ -311,6 +326,7 @@ namespace Oxy {
     void CodeGenerator::Visit(Ast::ReturnStatement *returnStatement) {
         if (returnStatement->GetValue()) {
             auto value = EmitExpression(returnStatement->GetValue());
+            // if the type is not a pointer, or custom type, we can just return the value directly. Otherwise, we need to copy it to the return slot.
             getCurrentBlock()->addReturn(value);
         } else {
             getCurrentBlock()->addReturn();
@@ -369,17 +385,29 @@ namespace Oxy {
 
         std::vector<Qbe::ValueReference> args;
         for (const auto& arg : functionCallExpression->GetArguments()) {
-            args.push_back(EmitExpression(arg));
+            auto argType = ResolveExpressionType(arg);
+            if (argType->GetLiteralType() == LiteralType::Pointer || argType->GetLiteralType() == LiteralType::UserDefined) {
+                args.push_back(EmitExpression(arg, true));
+            }
+            else {
+                args.push_back(EmitExpression(arg));
+            }
         }
 
-        auto it = functions.find(identifierExpr->ToString());
-        if (it == functions.end()) {
-            errors.push_back({"Undefined function: " + identifierExpr->ToString(), "", identifierExpr->GetLine(), identifierExpr->GetColumn()});
+        auto sym = ResolveSymbol(identifierExpr->ToString());
+
+        // function pointer
+        auto functionType = dynamic_cast<FunctionType*>(sym->type);
+        if (!functionType) {
+            errors.push_back({"Symbol '" + identifierExpr->ToString() + "' is not a function", "", identifierExpr->GetLine(), identifierExpr->GetColumn()});
             return;
         }
 
-        auto function = it->second;
-        getCurrentBlock()->addCall(function, args);
+        getCurrentBlock()->addCall(EmitExpression(identifierExpr),
+            GetQbeType(functionType->GetReturnType()),
+            functionType->IsVariadic(),
+            functionType->GetParameterTypes().size(),
+            module.is64Bit, args);
 
         getCurrentBlock()->addComment("End function call '" + functionCallExpression->ToString() + "'");
     }
@@ -605,6 +633,12 @@ namespace Oxy {
         // Does nothing yet.
     }
 
+    void CodeGenerator::Visit(Ast::PointerMemberAccessExpression *pointerMemberAccessExpression) {
+        auto object = EmitExpression(pointerMemberAccessExpression->GetObject());
+        auto memberName = pointerMemberAccessExpression->GetMemberName();
+
+    }
+
     void CodeGenerator::Visit(Ast::TypeExpression *typeExpression) {
     }
 
@@ -637,6 +671,8 @@ namespace Oxy {
                     return new Qbe::Primitive(Qbe::TypeDefinitionKind::Float64, true);
                 case LiteralType::Void:
                     return new Qbe::VoidType();
+                case LiteralType::Function:
+                    return new Qbe::Primitive(Qbe::TypeDefinitionKind::Pointer); // Functions are just pointers, to the location of said function.
 
                 default: {
                     errors.push_back({"Unsupported type: " + type->ToString(), "", 0, 0});
@@ -746,6 +782,43 @@ namespace Oxy {
             return nullptr;
         }
 
+        if (auto* pointerMemberAccess = dynamic_cast<Ast::PointerMemberAccessExpression*>(expression)) {
+            auto structType = ResolveExpressionType(pointerMemberAccess->GetObject());
+            if (!structType) {
+                errors.push_back({"Could not resolve type of struct in pointer member access", "", pointerMemberAccess->GetLine(), pointerMemberAccess->GetColumn()});
+                return nullptr;
+            }
+
+            if (structType->GetNestedType() && structType->GetLiteralType() == LiteralType::Pointer && structType->GetNestedType()->GetLiteralType() == LiteralType::UserDefined) {
+                structType = structType->GetNestedType();
+            }
+            else {
+                errors.push_back({"Member access on non-struct type '" + structType->ToString() + "'", "", pointerMemberAccess->GetLine(), pointerMemberAccess->GetColumn()});
+                return nullptr;
+            }
+
+            auto sym = ResolveSymbol(structType->GetIdentifier());
+            if (!sym) {
+                errors.push_back({"Undefined type: " + structType->GetIdentifier(), "", pointerMemberAccess->GetLine(), pointerMemberAccess->GetColumn()});
+                return nullptr;
+            }
+
+            auto structDef = dynamic_cast<Ast::StructType *>(sym->type);
+            if (!structDef) {
+                errors.push_back({"Symbol '" + structType->GetIdentifier() + "' is not a type", "", pointerMemberAccess->GetLine(), pointerMemberAccess->GetColumn()});
+                return nullptr;
+            }
+
+            for (const auto& field : structDef->GetFields()) {
+                if (field.name == pointerMemberAccess->GetMemberName()) {
+                    return field.type;
+                }
+            }
+
+            errors.push_back({"Struct '" + structDef->GetIdentifier() + "' does not have a member named '" + pointerMemberAccess->GetMemberName() + "'", "", pointerMemberAccess->GetLine(), pointerMemberAccess->GetColumn()});
+            return nullptr;
+        }
+
         if (auto* structInit = dynamic_cast<Ast::StructInitializerExpression*>(expression)) {
             auto structType = ResolveExpressionType(structInit->GetStructIdentifier());
             if (!structType) {
@@ -811,7 +884,9 @@ namespace Oxy {
             return 0;
         }
 
-        if (structType->GetLiteralType() != LiteralType::UserDefined) {
+        if (structType->GetNestedType() && structType->GetLiteralType() == LiteralType::Pointer && structType->GetNestedType()->GetLiteralType() == LiteralType::UserDefined) {
+            structType = structType->GetNestedType();
+        } else if (structType->GetLiteralType() != LiteralType::UserDefined) {
             errors.push_back({"Member access on non-struct type '" + structType->ToString() + "'", "", expression->GetLine(), expression->GetColumn()});
             return 0;
         }
@@ -873,6 +948,12 @@ namespace Oxy {
             return getCurrentBlock()->addAdd(arrayAddress, offset);
         }
 
+        if (auto *pointerMemberAccess = dynamic_cast<Ast::PointerMemberAccessExpression *>(expression)) {
+            auto address = GetStructAddress(pointerMemberAccess->GetObject());
+            auto offset = GetStructMemberOffset(pointerMemberAccess->GetObject(), pointerMemberAccess->GetMemberName());
+            return getCurrentBlock()->addAdd(address, Qbe::CreateLiteral((int64_t)offset));
+        }
+
         errors.push_back({"Unsupported expression for getting struct address", "", expression->GetLine(), expression->GetColumn()});
         return Qbe::ValueReference();
     }
@@ -910,7 +991,7 @@ namespace Oxy {
                 case LiteralType::Double:
                     return Qbe::ValueReference(new Qbe::Literal(std::get<double>(value)));
                 case LiteralType::Pointer:
-                    return Qbe::ValueReference(new Qbe::Literal((int64_t)std::get<uint64_t>(value), false)); // We already handle string literals.
+                    return Qbe::ValueReference(Qbe::Literal::CreatePointerLiteral(std::get<uint64_t>(value)));
                 default:
                     errors.push_back({"Unsupported literal type: " + LiteralToString[type], "", literal->GetLine(), literal->GetColumn()});
                     return Qbe::ValueReference();
@@ -918,6 +999,10 @@ namespace Oxy {
         }
 
         if (auto *ident = dynamic_cast<Ast::IdentifierExpression *>(expression)) {
+            if (functions.find(ident->ToString()) != functions.end()) {
+                return Qbe::ValueReference(new Qbe::Global(functions[ident->ToString()]->identifier, "")); // function name as pointer
+            }
+
             auto var = ResolveVariable(ident->ToString());
             if (!var) {
                 errors.push_back({"Undefined variable: " + ident->ToString(), "", ident->GetLine(), ident->GetColumn()});
@@ -928,11 +1013,7 @@ namespace Oxy {
                 return *var;
             }
 
-            // We must load the value
             auto type = ResolveExpressionType(expression);
-            if (type->GetLiteralType() == LiteralType::Pointer || type->GetLiteralType() == LiteralType::UserDefined) {
-                return *var;
-            }
             auto loaded = getCurrentBlock()->addLoad(*var, GetQbeType(type));
             return loaded;
         }
@@ -1054,14 +1135,20 @@ namespace Oxy {
                 args.push_back(EmitExpression(arg));
             }
 
-            auto it = functions.find(identifierExpr->ToString());
-            if (it == functions.end()) {
-                errors.push_back({"Undefined function: " + identifierExpr->ToString(), "", identifierExpr->GetLine(), identifierExpr->GetColumn()});
+            auto sym = ResolveSymbol(identifierExpr->ToString());
+
+            // function pointer
+            auto functionType = dynamic_cast<FunctionType*>(sym->type);
+            if (!functionType) {
+                errors.push_back({"Symbol '" + identifierExpr->ToString() + "' is not a function", "", identifierExpr->GetLine(), identifierExpr->GetColumn()});
                 return Qbe::ValueReference();
             }
 
-            auto function = it->second;
-            return getCurrentBlock()->addCall(function, args);
+            return getCurrentBlock()->addCall(EmitExpression(identifierExpr),
+                GetQbeType(functionType->GetReturnType()),
+                functionType->IsVariadic(),
+                functionType->GetParameterTypes().size(),
+                module.is64Bit, args);
         }
 
         if (auto *addressOf = dynamic_cast<Ast::AddressOfExpression *>(expression)) {
@@ -1078,6 +1165,10 @@ namespace Oxy {
                 return GetStructAddress(memberAccess);
             } else if (auto *subscript = dynamic_cast<Ast::SubscriptExpression *>(operand)) {
                 return GetStructAddress(subscript);
+            } else if (auto *dereference = dynamic_cast<Ast::DereferenceExpression *>(operand)) {
+                return EmitExpression(dereference->GetOperand());
+            }else if (auto *pointerMemberAccess = dynamic_cast<Ast::PointerMemberAccessExpression *>(operand)) {
+                return GetStructAddress(pointerMemberAccess);
             }
             else {
                 errors.push_back({"Address-of operator can only be applied to variables for now", "", operand->GetLine(), operand->GetColumn()});
@@ -1151,6 +1242,62 @@ namespace Oxy {
             auto fieldAddress = getCurrentBlock()->addAdd(base, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false)));
 
             // Struct-typed fields are already addressable, load would dereference the struct as a pointer
+            if (fieldIt->type->GetLiteralType() == LiteralType::UserDefined) {
+                auto dest = getCurrentBlock()->addAllocate(Qbe::ValueReference(new Qbe::Literal((int64_t)memberTypeQbe->ByteSize(module.is64Bit), false)));
+                dest.value.local->type = memberTypeQbe;
+                addMemcpy(fieldAddress, dest, memberTypeQbe->ByteSize(module.is64Bit));
+                return dest;
+            }
+
+            return getCurrentBlock()->addLoad(fieldAddress, memberTypeQbe);
+        }
+
+        if (auto *pointerMemberAccessExpression = dynamic_cast<Ast::PointerMemberAccessExpression *>(expression)) {
+            auto base = EmitExpression(pointerMemberAccessExpression->GetObject(), false);
+            auto baseType = ResolveExpressionType(pointerMemberAccessExpression->GetObject()); // pointer to struct
+            if (!baseType) {
+                errors.push_back({"Could not resolve type of struct in pointer member access", "", pointerMemberAccessExpression->GetLine(), pointerMemberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            if (baseType->GetNestedType() && baseType->GetLiteralType() == LiteralType::Pointer && baseType->GetNestedType()->GetLiteralType() == LiteralType::UserDefined) {
+                baseType = baseType->GetNestedType();
+            }
+            else {
+                errors.push_back({"Pointer member access on non-struct type '" + baseType->ToString() + "'", "", pointerMemberAccessExpression->GetLine(), pointerMemberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto sym = ResolveSymbol(baseType->GetIdentifier());
+            if (!sym) {
+                errors.push_back({"Undefined type: " + baseType->GetIdentifier(), "", pointerMemberAccessExpression->GetLine(), pointerMemberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto structDef = dynamic_cast<Ast::StructType *>(sym->type);
+            if (!structDef) {
+                errors.push_back({"Symbol '" + baseType->GetIdentifier() + "' is not a type", "", pointerMemberAccessExpression->GetLine(), pointerMemberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto fieldIt = std::find_if(structDef->GetFields().begin(), structDef->GetFields().end(), [&](const Ast::StructType::Field& f) {
+                return f.name == pointerMemberAccessExpression->GetMemberName();
+            });
+
+            if (fieldIt == structDef->GetFields().end()) {
+                errors.push_back({"Struct '" + structDef->GetIdentifier() + "' does not have a member named '" + pointerMemberAccessExpression->GetMemberName() + "'", "", pointerMemberAccessExpression->GetLine(), pointerMemberAccessExpression->GetColumn()});
+                return Qbe::ValueReference();
+            }
+
+            auto offset = GetStructMemberOffset(pointerMemberAccessExpression->GetObject(), pointerMemberAccessExpression->GetMemberName());
+            auto memberTypeQbe = GetQbeType(fieldIt->type);
+
+            auto fieldAddress = getCurrentBlock()->addAdd(base, Qbe::ValueReference(new Qbe::Literal((int64_t)offset, false)));
+
+            if (getReference) {
+                return fieldAddress;
+            }
+
             if (fieldIt->type->GetLiteralType() == LiteralType::UserDefined) {
                 auto dest = getCurrentBlock()->addAllocate(Qbe::ValueReference(new Qbe::Literal((int64_t)memberTypeQbe->ByteSize(module.is64Bit), false)));
                 dest.value.local->type = memberTypeQbe;

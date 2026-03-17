@@ -506,6 +506,20 @@ namespace Oxy {
                 continue;
             }
 
+            // Pointer member access ->
+            if (token.kind == Token::Kind::Operator && std::get<Operator>(token.value) == Operator::Arrow) {
+                Advance(); // consume '->'
+                if (Peek().kind != Token::Kind::Identifier) {
+                    errors->push_back({fmt::format("Expected identifier after '->' in pointer member access"), "", Peek().line, Peek().column});
+                    return nullptr;
+                }
+                std::string memberName = std::get<std::string>(Match(Token::Kind::Identifier).value);
+                Advance(); // consume member name
+
+                left = new Ast::PointerMemberAccessExpression(left, memberName, token.line, token.column);
+                continue;
+            }
+
             // If we get here, it is a binary expression.
             if (token.kind != Token::Kind::Operator)
                 break;

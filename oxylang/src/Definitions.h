@@ -300,6 +300,7 @@ namespace Oxy {
         {Operator::Parentheses, 1.0f},
         {Operator::ArraySubscript, 2.0f},
         {Operator::MemberAccess, 2.0f},
+        {Operator::Arrow, 2.0f},
         {Operator::Addr, 3.0f},
         {Operator::Deref, 3.0f},
         {Operator::Cast, 3.0f},

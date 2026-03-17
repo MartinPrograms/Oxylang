@@ -1,73 +1,111 @@
-@extern @symbol("sqrtf") fn sqrtf(x: f32) -> f32;
 @extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
-@extern @symbol("calloc") fn calloc(size: u64) -> ptr<u8>;
+@extern @symbol("malloc") fn malloc(size: i64) -> ptr<u8>;
 
-struct Vector2 {
-	x: f32;
-	y: f32;
+/*
+struct Point {
+    x: f64;
+    y: f64;
 }
 
-struct NestedTest {
-	vec: Vector2;
-	value: i32;
+struct Node {
+    point: Point;
+    next: ptr<Node>;
 }
 
-struct NestedNestedTest {
-	nested: ptr<NestedTest>;
-	name: ptr<u8>; // null terminated string
+fn create_list() -> ptr<Node> {
+    let head: ptr<Node> = cast<ptr<Node>>(malloc(sizeof<Node>));
+    head->next = null;
+    return head;
 }
 
-struct NestedNestedNestedTest {
-    nested: NestedNestedTest;
-    description: ptr<u8>; // null terminated string
+fn add_point_to_linked_list(head: ptr<Node>, point: Point) {
+    let new_node: ptr<Node> = cast<ptr<Node>>(malloc(sizeof<Node>));
+    new_node->point = point;
+    new_node->next = head->next;
+    head->next = new_node;
 }
 
-fn length(this: Vector2) -> f32 {
-	return sqrtf(this.x * this.x + this.y * this.y);
+fn iterate_linked_list(head: ptr<Node>, callback: fn(ptr<Point>)) {
+    let current: ptr<Node> = head->next;
+    while (current != null) {
+        callback(addr(current->point));
+        current = current->next;
+    }
 }
 
-fn distance(this: Vector2, other: Vector2) -> f32 {
-	let dx = this.x - other.x;
-	let dy = this.y - other.y;
-	return sqrtf(dx * dx + dy * dy);
+fn print_point(point: ptr<Point>) {
+    printf("Point(x: %f, y: %f)\n", point->x, point->y);
 }
 
-fn print_vector(this: Vector2) {
-	printf("Vector2(x: %f, y: %f)\n", cast<f64>(this.x), cast<f64>(this.y));
+@entry
+fn main() {
+    printf("Testing linked list of points...\n");
+    let list: ptr<Node> = create_list();
+    printf("Created list at address: %p\n", list);
+    add_point_to_linked_list(list, Point { x: 1.0, y: 2.0 });
+    printf("Added point (1.0, 2.0) to list\n");
+    add_point_to_linked_list(list, Point { x: 3.0, y: 4.0 });
+    printf("Added point (3.0, 4.0) to list\n");
+    iterate_linked_list(list, print_point);
+}
+*/
+
+struct Test {
+    next: ptr<Test>;
+    a: i32;
+    b: f64;
+}
+
+fn print_test(test: ptr<Test>) {
+    printf("Test(a: %d, b: %f, next: %p)\n", test->a, test->b, test->next);
+}
+
+fn increase_a(test: ptr<Test>) {
+    test->a = 1 + test->a;
+}
+
+fn increase_b(test: ptr<Test>) {
+    test->b = 1.0 + test->b;
+}
+
+fn set_next(test: ptr<Test>, next: ptr<Test>) {
+    test->next = next;
+}
+
+fn create_test(a: i32, b: f64) -> ptr<Test> {
+    printf("Creating test with a: %d, b: %f\n", a, b);
+    let new_test: ptr<Test> = cast<ptr<Test>>(malloc(sizeof<Test>));
+    printf("Allocated Test at address: %p\n", new_test);
+    new_test->a = a;
+    printf("Set a to %d\n", new_test->a);
+    new_test->b = b;
+    printf("Set b to %f\n", new_test->b);
+    new_test->next = null;
+    printf("Initialized next to null\n");
+
+    print_test(new_test);
+    printf("Finished creating test\n");
+
+    return new_test;
 }
 
 @entry 
 fn main() -> u8 {
-	let v1 = Vector2 { x: 3.0f, y: 4.0f };
-    let v2 = Vector2 { x: 6.0f, y: 8.0f };
+    printf("Testing struct...\n");
+    let test: ptr<Test> = create_test(42, 3.14);
+    print_test(test);
 
-    print_vector(v1);
-    print_vector(v2);
+    increase_a(test);
+    print_test(test);
 
-    printf("Length of v1: %f\n", cast<f64>(length(v1)));
-    printf("Length of v2: %f\n", cast<f64>(length(v2)));
-    printf("Distance between v1 and v2: %f\n", cast<f64>(distance(v1, v2)));
+    increase_b(test);
+    print_test(test);
 
-    let sizeofVector2: u64 = sizeof<Vector2>;
-    let sizeofNestedTest: u64 = sizeof<NestedTest>;
-    let sizeofNestedNestedTest: u64 = sizeof<NestedNestedTest>;
+    let next_test: ptr<Test> = create_test(100, 2.718);
+    set_next(test, next_test);
+    print_test(test);
 
-    printf("Size of Vector2: %lu bytes\n", sizeofVector2);
-    printf("Size of NestedTest: %lu bytes\n", sizeofNestedTest);
-    printf("Size of NestedNestedTest: %lu bytes\n", sizeofNestedNestedTest);
+    print_test(test->next);
 
-    let nestedTestInstance = NestedTest { vec: v1, value: 42 };
-    let nestedNestedTestInstance = NestedNestedTest { nested: addr(nestedTestInstance), name: "NestingTesting" };
-
-    printf("NestedNestedTest name: %s\n", nestedNestedTestInstance.name);
-    printf("NestedNestedTest nested: %p\n", (nestedNestedTestInstance.nested));
-    printf("NestedTest value: %d\n", deref(nestedNestedTestInstance.nested).value);
-
-    // let nestedNestedNestedTestInstance = NestedNestedNestedTest { nested: nestedNestedTestInstance, description: "This is a nested nested nested test." };
-    // printf("NestedNestedNestedTest description: %s\n", nestedNestedNestedTestInstance.description);
-    // let nested = deref(nestedNestedNestedTestInstance.nested.nested);
-    // printf("NestedNestedNestedTest nested nested value: %d\n", nested.value);
-    // print_vector(nested.vec);
-
-	return 0u8;
+    return 0u8;
 }

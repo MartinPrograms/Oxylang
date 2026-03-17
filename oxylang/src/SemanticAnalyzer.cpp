@@ -469,6 +469,11 @@ namespace Oxy {
         }
     }
 
+    void SemanticAnalyzer::Visit(Ast::PointerMemberAccessExpression *pointerMemberAccessExpression) {
+        auto object = pointerMemberAccessExpression->GetObject();
+        object->Accept(this);
+    }
+
     void SemanticAnalyzer::Visit(Ast::TypeExpression *typeExpression) {
     }
 
@@ -561,6 +566,29 @@ namespace Oxy {
             }
         }
 
+        if (auto* pointerMemberAccessExpression = dynamic_cast<Ast::PointerMemberAccessExpression*>(expression)) {
+            auto* objectType = ResolveExpressionType(pointerMemberAccessExpression->GetObject());
+            if (objectType && objectType->GetLiteralType() == LiteralType::Pointer) {
+                auto* nestedType = objectType->GetNestedType();
+                if (nestedType && nestedType->GetLiteralType() == LiteralType::UserDefined) {
+                    auto* sym = ResolveSymbol(nestedType->GetIdentifier());
+                    if (sym && sym->kind == Symbol::Kind::Struct) {
+                        auto* structType = dynamic_cast<Ast::StructType*>(sym->type);
+                        if (structType) {
+                            auto fieldName = pointerMemberAccessExpression->GetMemberName();
+                            auto it = std::find_if(structType->GetFields().begin(), structType->GetFields().end(), [&](const Ast::StructType::Field& f) {
+                                return f.name == fieldName;
+                            });
+
+                            if (it != structType->GetFields().end()) {
+                                return it->type;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (auto* structInit = dynamic_cast<Ast::StructInitializerExpression*>(expression)) {
             auto identifier = structInit->GetStructIdentifier();
             auto sym = ResolveSymbol(identifier->ToString());
@@ -575,6 +603,19 @@ namespace Oxy {
     bool SemanticAnalyzer::TypesMatch(Type *a, Type *b) {
         if (a == nullptr || b == nullptr) {
             return false;
+        }
+
+        // We need an exception for void pointers, since they can be converted to any other pointer type.
+        if (a->GetLiteralType() == LiteralType::Pointer && a->GetNestedType() && a->GetNestedType()->GetLiteralType() == LiteralType::Void) {
+            if (b->GetLiteralType() == LiteralType::Pointer) {
+                return true;
+            }
+        }
+
+        if (b->GetLiteralType() == LiteralType::Pointer && b->GetNestedType() && b->GetNestedType()->GetLiteralType() == LiteralType::Void) {
+            if (a->GetLiteralType() == LiteralType::Pointer) {
+                return true;
+            }
         }
 
         if (*a != *b) {

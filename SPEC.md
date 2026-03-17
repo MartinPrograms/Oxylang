@@ -247,18 +247,18 @@ assignment operators have the lowest precendence.
 #### table:
 (lower number = higher precedence)
 
-| operator                         | description                        | associativity | precedence |
-|----------------------------------|------------------------------------|---------------|------------|
-| `++`, `--`                       | post-increment/decrement           | left          | 0          |
-| `()`                             | nested expressions, function calls | left          | 1          |
-| `[]`, `.`                        | array access, member access        | left          | 2          |
-| `addr`, `deref`, `cast`          | pointer operations                 | right         | 3          |
-| `*`, `/`, `%`                    | multiplication, division, modulus  | left          | 4          |
-| `+`, `-`                         | addition, subtraction              | left          | 5          |
-| `<`, `<=`, `>`, `>=`, `==`, `!=` | equality operators                 | left          | 6          |
-| `&&`, `\|\|`                     | logical AND, OR                    | left          | 7          |
-| `<<`, `>>`, `&`, `^`, `\|`       | bitwise operators                  | left          | 8          |
-| `=`, `+=`, `-=`, etc.            | assignment operators               | right         | 9          |
+| operator                         | description                                 | associativity | precedence |
+|----------------------------------|---------------------------------------------|---------------|------------|
+| `++`, `--`                       | post-increment/decrement                    | left          | 0          |
+| `()`                             | nested expressions, function calls          | left          | 1          |
+| `[]`, `.`, `->`                  | array access, member access, pointer access | left          | 2          |
+| `addr`, `deref`, `cast`          | pointer operations                          | right         | 3          |
+| `*`, `/`, `%`                    | multiplication, division, modulus           | left          | 4          |
+| `+`, `-`                         | addition, subtraction                       | left          | 5          |
+| `<`, `<=`, `>`, `>=`, `==`, `!=` | equality operators                          | left          | 6          |
+| `&&`, `\|\|`                     | logical AND, OR                             | left          | 7          |
+| `<<`, `>>`, `&`, `^`, `\|`       | bitwise operators                           | left          | 8          |
+| `=`, `+=`, `-=`, etc.            | assignment operators                        | right         | 9          |
 
 
 
