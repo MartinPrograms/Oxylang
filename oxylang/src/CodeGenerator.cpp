@@ -129,10 +129,7 @@ namespace Oxy {
         EnterScope();
         for (size_t i = 0; i < function->GetParameters().size(); i++) {
             auto param = function->GetParameters()[i];
-            if (param->GetType()->GetLiteralType() == LiteralType::Pointer) {
-                AddVariable(param->GetName(), Qbe::ValueReference(&qbeFunction->parameters[i]), {param->GetName(), param->GetType(), SemanticAnalyzer::Symbol::Kind::Variable, param->GetLine(), param->GetColumn()});
-            }
-            else if (param->GetType()->GetLiteralType() == LiteralType::UserDefined) {
+            if (param->GetType()->GetLiteralType() == LiteralType::UserDefined) {
                 auto qbeType = GetQbeType(param->GetType());
                 auto allocated = entryPoint->addAllocate(GetSize(qbeType));
                 addMemcpy(Qbe::ValueReference(&qbeFunction->parameters[i]), allocated, (long)qbeType->ByteSize(module.is64Bit));
@@ -313,14 +310,16 @@ namespace Oxy {
 
     void CodeGenerator::Visit(Ast::AssignmentExpression *assignmentExpression) {
         auto left = EmitExpression(assignmentExpression->GetLeft(), true);
-        auto right = assignmentExpression->GetRight();
+        auto rightType = ResolveExpressionType(assignmentExpression->GetRight());
 
-        auto value = EmitExpression(right);
-
-        if (left.GetType()->IsCustomType())
-            addMemcpy(value, left, value.GetType()->ByteSize(module.is64Bit));
-        else
+        if (rightType && rightType->GetLiteralType() == LiteralType::UserDefined) {
+            // RHS by reference gives us the raw data pointer, no slot-load needed
+            auto value = EmitExpression(assignmentExpression->GetRight(), true);
+            addMemcpy(value, left, GetQbeType(rightType)->ByteSize(module.is64Bit));
+        } else {
+            auto value = EmitExpression(assignmentExpression->GetRight(), false);
             getCurrentBlock()->addStore(value, left);
+        }
     }
 
     void CodeGenerator::Visit(Ast::ReturnStatement *returnStatement) {
@@ -386,11 +385,10 @@ namespace Oxy {
         std::vector<Qbe::ValueReference> args;
         for (const auto& arg : functionCallExpression->GetArguments()) {
             auto argType = ResolveExpressionType(arg);
-            if (argType->GetLiteralType() == LiteralType::Pointer || argType->GetLiteralType() == LiteralType::UserDefined) {
-                args.push_back(EmitExpression(arg, true));
-            }
-            else {
-                args.push_back(EmitExpression(arg));
+            if (argType->GetLiteralType() == LiteralType::UserDefined) {
+                args.push_back(EmitExpression(arg, true)); // pass struct by reference
+            } else {
+                args.push_back(EmitExpression(arg, false)); // pass primitives by value
             }
         }
 
@@ -857,6 +855,13 @@ namespace Oxy {
             }
         }
 
+        if (auto* addressOfExpression = dynamic_cast<Ast::AddressOfExpression*>(expression)) {
+            auto operandType = ResolveExpressionType(addressOfExpression->GetOperand());
+            if (operandType) {
+                return new Type(LiteralType::Pointer, 0, operandType);
+            }
+        }
+
         errors.push_back({"Could not resolve type of expression", "", expression->GetLine(), expression->GetColumn()});
         return nullptr;
     }
@@ -1132,7 +1137,12 @@ namespace Oxy {
 
             std::vector<Qbe::ValueReference> args;
             for (const auto& arg : call->GetArguments()) {
-                args.push_back(EmitExpression(arg));
+                auto argType = ResolveExpressionType(arg);
+                if (argType->GetLiteralType() == LiteralType::UserDefined) {
+                    args.push_back(EmitExpression(arg, true)); // pass struct by reference
+                } else {
+                    args.push_back(EmitExpression(arg, false)); // pass primitives by value
+                }
             }
 
             auto sym = ResolveSymbol(identifierExpr->ToString());
@@ -1167,8 +1177,10 @@ namespace Oxy {
                 return GetStructAddress(subscript);
             } else if (auto *dereference = dynamic_cast<Ast::DereferenceExpression *>(operand)) {
                 return EmitExpression(dereference->GetOperand());
-            }else if (auto *pointerMemberAccess = dynamic_cast<Ast::PointerMemberAccessExpression *>(operand)) {
-                return GetStructAddress(pointerMemberAccess);
+            } else if (auto *pointerMemberAccess = dynamic_cast<Ast::PointerMemberAccessExpression *>(operand)) {
+                auto baseAddress = EmitExpression(pointerMemberAccess->GetObject());
+                auto offset = GetStructMemberOffset(pointerMemberAccess->GetObject(), pointerMemberAccess->GetMemberName());
+                return getCurrentBlock()->addAdd(baseAddress, Qbe::CreateLiteral((int64_t)offset));
             }
             else {
                 errors.push_back({"Address-of operator can only be applied to variables for now", "", operand->GetLine(), operand->GetColumn()});
@@ -1300,8 +1312,8 @@ namespace Oxy {
 
             if (fieldIt->type->GetLiteralType() == LiteralType::UserDefined) {
                 auto dest = getCurrentBlock()->addAllocate(Qbe::ValueReference(new Qbe::Literal((int64_t)memberTypeQbe->ByteSize(module.is64Bit), false)));
-                dest.value.local->type = memberTypeQbe;
                 addMemcpy(fieldAddress, dest, memberTypeQbe->ByteSize(module.is64Bit));
+                dest.value.local->type = memberTypeQbe;
                 return dest;
             }
 

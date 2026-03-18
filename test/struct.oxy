@@ -1,7 +1,7 @@
 @extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
 @extern @symbol("malloc") fn malloc(size: i64) -> ptr<u8>;
 
-/*
+
 struct Point {
     x: f64;
     y: f64;
@@ -38,74 +38,15 @@ fn print_point(point: ptr<Point>) {
 }
 
 @entry
-fn main() {
+fn main() -> u8 {
     printf("Testing linked list of points...\n");
     let list: ptr<Node> = create_list();
     printf("Created list at address: %p\n", list);
-    add_point_to_linked_list(list, Point { x: 1.0, y: 2.0 });
-    printf("Added point (1.0, 2.0) to list\n");
-    add_point_to_linked_list(list, Point { x: 3.0, y: 4.0 });
-    printf("Added point (3.0, 4.0) to list\n");
+    for (let i = 0; i < 5; i = i + 1) {
+        let point: Point = Point { x: cast<f64>(i), y: cast<f64>(i * 2) };
+        add_point_to_linked_list(list, point);
+    }
     iterate_linked_list(list, print_point);
-}
-*/
-
-struct Test {
-    next: ptr<Test>;
-    a: i32;
-    b: f64;
-}
-
-fn print_test(test: ptr<Test>) {
-    printf("Test(a: %d, b: %f, next: %p)\n", test->a, test->b, test->next);
-}
-
-fn increase_a(test: ptr<Test>) {
-    test->a = 1 + test->a;
-}
-
-fn increase_b(test: ptr<Test>) {
-    test->b = 1.0 + test->b;
-}
-
-fn set_next(test: ptr<Test>, next: ptr<Test>) {
-    test->next = next;
-}
-
-fn create_test(a: i32, b: f64) -> ptr<Test> {
-    printf("Creating test with a: %d, b: %f\n", a, b);
-    let new_test: ptr<Test> = cast<ptr<Test>>(malloc(sizeof<Test>));
-    printf("Allocated Test at address: %p\n", new_test);
-    new_test->a = a;
-    printf("Set a to %d\n", new_test->a);
-    new_test->b = b;
-    printf("Set b to %f\n", new_test->b);
-    new_test->next = null;
-    printf("Initialized next to null\n");
-
-    print_test(new_test);
-    printf("Finished creating test\n");
-
-    return new_test;
-}
-
-@entry 
-fn main() -> u8 {
-    printf("Testing struct...\n");
-    let test: ptr<Test> = create_test(42, 3.14);
-    print_test(test);
-
-    increase_a(test);
-    print_test(test);
-
-    increase_b(test);
-    print_test(test);
-
-    let next_test: ptr<Test> = create_test(100, 2.718);
-    set_next(test, next_test);
-    print_test(test);
-
-    print_test(test->next);
 
     return 0u8;
 }
