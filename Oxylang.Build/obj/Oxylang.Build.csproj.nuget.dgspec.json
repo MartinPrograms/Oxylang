@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/marten/RiderProjects/Oxy/Oxylang/Oxylang.csproj": {}
+    "/home/marten/RiderProjects/Oxy/Oxylang.Build/Oxylang.Build.csproj": {}
   },
   "projects": {
-    "/home/marten/RiderProjects/Oxy/Oxylang/Oxylang.csproj": {
+    "/home/marten/RiderProjects/Oxy/Oxylang.Build/Oxylang.Build.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/marten/RiderProjects/Oxy/Oxylang/Oxylang.csproj",
-        "projectName": "Oxylang",
-        "projectPath": "/home/marten/RiderProjects/Oxy/Oxylang/Oxylang.csproj",
+        "projectUniqueName": "/home/marten/RiderProjects/Oxy/Oxylang.Build/Oxylang.Build.csproj",
+        "projectName": "Oxylang.Build",
+        "projectPath": "/home/marten/RiderProjects/Oxy/Oxylang.Build/Oxylang.Build.csproj",
         "packagesPath": "/home/marten/.nuget/packages/",
-        "outputPath": "/home/marten/RiderProjects/Oxy/Oxylang/obj/",
+        "outputPath": "/home/marten/RiderProjects/Oxy/Oxylang.Build/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/marten/.nuget/NuGet/NuGet.Config"
