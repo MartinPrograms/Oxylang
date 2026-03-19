@@ -1,8 +1,0 @@
-import "graphics" as g;
-
-@entry
-fn main() -> u8 {
-    g.print("Test");
-    g.do_stuff();
-    return 1u8;
-}

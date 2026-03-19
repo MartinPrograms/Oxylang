@@ -1,6 +1,0 @@
-@public @extern @symbol("printf") fn print(fmt: ptr<u8>, ...);
-
-@public
-fn do_stuff() {
-    print("Hello, world!\n");
-}
