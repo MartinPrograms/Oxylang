@@ -6,7 +6,7 @@
 namespace Oxy {
     class ImportType : public Type {
     public:
-        explicit ImportType(std::string moduleName) : Type(LiteralType::UserDefined), moduleName(std::move(moduleName)) {}
+        explicit ImportType(std::string moduleName, ModuleData moduleData) : Type(LiteralType::UserDefined), moduleName(std::move(moduleName)), moduleData(moduleData) {}
 
         std::string ToString() const override {
             return "import " + moduleName;
@@ -15,6 +15,7 @@ namespace Oxy {
         [[nodiscard]] const std::string& GetModuleName() const { return moduleName; }
     private:
         std::string moduleName;
+        ModuleData moduleData;
     };
 }
 

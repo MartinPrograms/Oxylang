@@ -3,9 +3,14 @@
 #include <algorithm>
 
 #include "ImportType.h"
+#include "ModuleData.h"
 #include "StructType.h"
 
 namespace Oxy {
+    SemanticAnalyzer::SemanticAnalyzer(const std::map<std::string, ModuleData> &fileIdMap) {
+        this->fileIdMap = fileIdMap;
+    }
+
     SemanticAnalyzer::AnalysisResult SemanticAnalyzer::Analyze(Ast::Root *root) {
 
         Visit(root); // calls Visit on all nodes.
@@ -324,6 +329,60 @@ namespace Oxy {
     void SemanticAnalyzer::Visit(Ast::MemberAccessExpression *memberAccessExpression) {
         auto object = memberAccessExpression->GetObject();
         object->Accept(this);
+
+        auto objectType = ResolveExpressionType(object);
+        if (!objectType) {
+            errors.push_back({"Could not resolve type of object in member access", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+            return;
+        }
+
+        if (objectType->GetLiteralType() != LiteralType::UserDefined) {
+            errors.push_back({"Member access on non-struct type '" + objectType->ToString() + "'", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+            return;
+        }
+
+        if (auto *import = dynamic_cast<ImportType *>(objectType)) {
+            // we do not need the symbol
+            auto importedModule = fileIdMap[import->GetModuleName()];
+            for (const auto& exports : importedModule.exports) {
+                if (exports.name == memberAccessExpression->GetMemberName()) {
+                    return;
+                }
+            }
+
+            // If we get here it was an error
+            errors.push_back({"Module '" + import->GetModuleName() + "' does not have a member named '" + memberAccessExpression->GetMemberName() + "'", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+            return;
+        }
+
+        if (objectType->GetLiteralType() == LiteralType::UserDefined) {
+            auto sym = ResolveSymbol(objectType->GetIdentifier());
+            if (!sym) {
+                errors.push_back({"Undefined type: " + objectType->GetIdentifier(), "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+                return;
+            }
+
+            if (sym->kind != Symbol::Kind::Struct && sym->kind != Symbol::Kind::Import) {
+                errors.push_back({"Member access on non-struct and non-import type '" + objectType->ToString() + "'", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+                return;
+            }
+        }
+        else if (objectType->GetLiteralType() == LiteralType::Pointer && objectType->GetNestedType() && objectType->GetNestedType()->GetLiteralType() == LiteralType::UserDefined) {
+            auto sym = ResolveSymbol(objectType->GetNestedType()->GetIdentifier());
+            if (!sym) {
+                errors.push_back({"Undefined type: " + objectType->GetNestedType()->ToString(), "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+                return;
+            }
+
+            if (sym->kind != Symbol::Kind::Struct) {
+                errors.push_back({"Member access on non-struct type '" + objectType->ToString() + "'", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+                return;
+            }
+        }
+        else {
+            errors.push_back({"Member access on unsupported type '" + objectType->ToString() + "'", "", memberAccessExpression->GetLine(), memberAccessExpression->GetColumn()});
+            return;
+        }
     }
 
     void SemanticAnalyzer::Visit(Ast::IdentifierExpression *identifierExpression) {
@@ -393,8 +452,13 @@ namespace Oxy {
     }
 
     void SemanticAnalyzer::Visit(Ast::ImportStatement *importStatement) {
+        if (!fileIdMap.contains(importStatement->GetModuleName())) {
+            errors.push_back({"Module not found: " + importStatement->GetModuleName(), "", importStatement->GetLine(), importStatement->GetColumn()});
+            return;
+        }
+
         imports.push_back({importStatement->GetModuleName(), importStatement->GetAlias()});
-        AddSymbol({importStatement->GetAlias(), new ImportType(importStatement->GetModuleName()), Symbol::Kind::Import, importStatement->GetLine(), importStatement->GetColumn()});
+        AddSymbol({importStatement->GetAlias(), new ImportType(importStatement->GetModuleName(), fileIdMap[importStatement->GetModuleName()]), Symbol::Kind::Import, importStatement->GetLine(), importStatement->GetColumn()});
     }
 
     void SemanticAnalyzer::Visit(Type *type) {

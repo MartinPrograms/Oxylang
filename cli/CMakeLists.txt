@@ -1,11 +1,11 @@
-project(OxyCLI LANGUAGES CXX)
+project(oxycli LANGUAGES CXX)
 
 file(GLOB_RECURSE CLI_SOURCES
     "src/*.cpp"
     "src/*.h"
 )
 
-add_executable(OxyCLI ${CLI_SOURCES})
+add_executable(oxycli ${CLI_SOURCES})
 
 include(FetchContent)
 FetchContent_Declare(
@@ -22,5 +22,5 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(CLI11 spdlog)
 
-target_link_libraries(OxyCLI PRIVATE CLI11::CLI11 spdlog::spdlog)
-target_link_libraries(OxyCLI PRIVATE Oxylang)
+target_link_libraries(oxycli PRIVATE CLI11::CLI11 spdlog::spdlog)
+target_link_libraries(oxycli PRIVATE Oxylang)

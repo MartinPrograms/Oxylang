@@ -1,0 +1,12 @@
+[project]
+name = "raylib_pong"
+version = "1.0.0"
+
+[build]
+buildType = "Debug"
+outputType = "Executable"
+outputPath = "./bin/pong"
+sourceFiles = [ "./src/**/*.oxy" ]
+
+[linker]
+libraries = ["raylib", "m"]

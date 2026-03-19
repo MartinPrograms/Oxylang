@@ -24,7 +24,7 @@ namespace Oxy {
             Scope(Scope* parent) : parent(parent) {}
         };
 
-        CodeGenerator(SemanticAnalyzer::AnalysisResult result, bool is64BitTarget) : result(std::move(result)), module(is64BitTarget) {}
+        CodeGenerator(SemanticAnalyzer::AnalysisResult result, bool is64BitTarget, const std::map<std::string, ModuleData>& fileIdMap);
         ~CodeGenerator() override;
 
         std::string Generate(Ast::Root *ast);
@@ -62,6 +62,8 @@ namespace Oxy {
 
         Qbe::ValueReference ResolveFunction(const std::string &string, std::size_t size);
 
+        std::string ResolveFunctionName(Ast::Expression * expression);
+
         void Visit(Ast::FunctionCallExpression *functionCallExpression) override;
         void Visit(Ast::PostfixExpression *postfixExpression) override;
         void Visit(Ast::SubscriptExpression *subscriptExpression) override;
@@ -89,6 +91,7 @@ namespace Oxy {
         Scope *currentScope = new Scope(nullptr);
         Qbe::Function* currentFunction;
         std::unordered_map<std::string, Qbe::CustomType *> customTypes{};
+        std::map<std::string, ModuleData> fileIdMap;
 
         Qbe::ITypeDefinition *GetQbeType(Type* type);
 
@@ -149,6 +152,28 @@ namespace Oxy {
                 }
                 scope = scope->parent;
             }
+
+            // Check exported functions from imports
+            for (const auto& import : result.imports) {
+                auto moduleIt = fileIdMap.find(import.moduleName);
+                if (moduleIt != fileIdMap.end()) {
+                    const auto& moduleData = moduleIt->second;
+                    for (const auto& export_ : moduleData.exports) {
+                        if (export_.symbolName == name) {
+                            if (export_.type == ExportType::Function) {
+                                return new SemanticAnalyzer::Symbol{name, nullptr, SemanticAnalyzer::Symbol::Kind::Function, 0, 0};
+                            }
+                            else if (export_.type == ExportType::Struct) {
+                                return new SemanticAnalyzer::Symbol{name, nullptr, SemanticAnalyzer::Symbol::Kind::Struct, 0, 0};
+                            }
+                            else if (export_.type == ExportType::Variable) {
+                                return new SemanticAnalyzer::Symbol{name, nullptr, SemanticAnalyzer::Symbol::Kind::Variable, 0, 0};
+                            }
+                        }
+                    }
+                }
+            }
+
             return nullptr;
         }
 

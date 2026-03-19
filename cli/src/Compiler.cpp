@@ -49,7 +49,29 @@ int Compiler::Compile() {
 
     spdlog::info("Root AST:\n{}", ast.ToString());
 
-    auto analyzer = new Oxy::SemanticAnalyzer();
+    auto fileIdMap = options.fileIdMap;
+    std::map<std::string, Oxy::ModuleData> moduleDataMap;
+    for (const auto& [id, path] : fileIdMap) {
+        try {
+            auto jsonContent = [&]() -> std::string {
+                std::ifstream inFile(path);
+                if (!inFile) {
+                    throw std::runtime_error("Could not open file: " + path);
+                }
+                std::stringstream buffer;
+                buffer << inFile.rdbuf();
+                return buffer.str();
+            }();
+            auto moduleData = Oxy::FromJson(jsonContent);
+            moduleDataMap[id] = moduleData;
+            spdlog::info("Loaded module data for '{}': {} imports, {} exports", id, moduleData.imports.size(), moduleData.exports.size());
+        } catch (const std::exception& e) {
+            spdlog::error("Failed to load module data for '{}' from path '{}': {}", id, path, e.what());
+            return 1;
+        }
+    }
+
+    auto analyzer = new Oxy::SemanticAnalyzer(moduleDataMap);
     auto analysis = analyzer->Analyze(&ast);
 
     if (!analyzer->GetErrors().empty()) {
@@ -87,7 +109,7 @@ int Compiler::Compile() {
     scopePrinter(analysis.globalScope, 0);
     spdlog::info("Symbol table:\n{}", result);
 
-    auto codegen = new Oxy::CodeGenerator(analysis, !options.is32BitTarget);
+    auto codegen = new Oxy::CodeGenerator(analysis, !options.is32BitTarget, moduleDataMap);
     auto code = codegen->Generate(&ast);
 
     if (!codegen->GetErrors().empty()) {

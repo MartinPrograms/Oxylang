@@ -59,6 +59,40 @@ namespace Oxy::Ast {
         }
 
         [[nodiscard]] const std::string& GetName() const { return name; }
+        [[nodiscard]] std::string GetObfuscatedName() const {
+            // Encode every parameter, argument and return type into the function name to create a unique name for this function that can be used in the generated code. This is necessary to support function overloading.
+            std::string obfuscatedName = "_oxy_" + name;
+            if (isVariadic) {
+                obfuscatedName += "_v_";
+            }
+
+            // Get a small hash from the function signature
+            uint16_t hash = 0;
+            for (const auto* param : parameters) {
+                std::string typeStr = param->GetType() ? param->GetType()->ToString() : "inferred";
+                for (char c : typeStr) {
+                    hash = (hash * 31) + c;
+                }
+            }
+            std::string returnTypeStr = returnType ? returnType->ToString() : "void";
+            for (char c : returnTypeStr) {
+                hash = (hash * 31) + c;
+            }
+
+            obfuscatedName += "_" + std::to_string(hash) + "_";
+
+            obfuscatedName += std::to_string(GetLine()) + "_" + std::to_string(GetColumn());
+
+            // replace any < and > characters with _
+            for (char& c : obfuscatedName) {
+                if (c == '<' || c == '>' || c == ' ' || c == ':' || c == ',' || c == '(' || c == ')' || c == '*' || c == '&' || c == '[' || c == ']' || c == '{' || c == '}' || c == '.' || c == '-' || c == '+' || c == '/' || c == '\\' || c == '|' || c == '^' || c == '~' || c == '!' || c == '@' || c == '#' || c == '$' || c == '%' || c == '?' || c == '=' ) {
+                    c = '_';
+                }
+            }
+
+            return obfuscatedName;
+        }
+
         [[nodiscard]] const std::vector<VariableDeclaration*>& GetParameters() const { return parameters; }
         [[nodiscard]] bool IsVariadic() const { return isVariadic; }
         [[nodiscard]] const std::vector<Attribute*>& GetAttributes() const { return attributes; }

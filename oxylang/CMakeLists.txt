@@ -15,9 +15,16 @@ FetchContent_Declare(
         GIT_TAG master
 )
 
-FetchContent_MakeAvailable(QbeIR)
+FetchContent_Declare(
+        json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.12.0
+)
+
+FetchContent_MakeAvailable(QbeIR json)
 
 target_link_libraries(Oxylang
         PUBLIC
         QbeIR
+        nlohmann_json::nlohmann_json
 )

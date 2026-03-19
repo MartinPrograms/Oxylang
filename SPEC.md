@@ -193,9 +193,9 @@ extension methods do not listen to imported module names. if type `T` is importe
 
 ## Modules and imports:
 - each source file is a module.
-- a module can be referenced either by file path or by a build-system identifier.
+- a module can be referenced either by file path (with dropped .oxy) or by a build-system identifier.
 - the source file's location is used as the root for relative paths.
-- to register something in the build system, add it to the list of modules as `{"id", "file_path.oxy"}`. There are a few default modules, which rely on oxy installation directories.
+- to register something in the build system, add it to the list of modules as `id = "filePath.oxy"`. There are a few default modules, which rely on oxy installation directories.
 
 ### syntax
 ```js
@@ -215,7 +215,7 @@ fn add (x: int, y: int) -> int { return x + y; }
 
 main.oxy:
 ```js
-import "math.oxy" as m;
+import "math" as m;
 
 @entry
 fn start() -> u8{

@@ -1,7 +1,7 @@
 #ifndef OXYLANG_COMPILER_H
 #define OXYLANG_COMPILER_H
 #include <string>
-
+#include <map>
 
 class Compiler {
 public:
@@ -10,6 +10,7 @@ public:
         std::string inputFile;
         std::string outputFile;
         bool is32BitTarget;
+        std::map<std::string, std::string> fileIdMap; // id -> file path
     };
     Compiler(Options options);
 

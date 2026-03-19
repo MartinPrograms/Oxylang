@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <string>
 
+#include "ModuleData.h"
+
 namespace Oxy {
     class SemanticAnalyzer : public Visitor {
     public:
@@ -60,6 +62,8 @@ namespace Oxy {
             Scope *globalScope;
         };
 
+        SemanticAnalyzer (const std::map<std::string, ModuleData> &fileIdMap);
+
         AnalysisResult Analyze(Ast::Root* root);
         std::vector<Error> GetErrors() const { return errors; }
 
@@ -107,6 +111,7 @@ namespace Oxy {
         Scope *globalScope = new Scope(nullptr);
         Scope *currentScope = globalScope;
         Ast::Function *currentFunction = nullptr;
+        std::map<std::string, ModuleData> fileIdMap;
 
         void EnterScope() {
             Scope *newScope = new Scope(currentScope);

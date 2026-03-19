@@ -1,8 +1,14 @@
 #include "CodeGenerator.h"
 
+#include "ImportType.h"
 #include "spdlog/spdlog.h"
 
 namespace Oxy {
+    CodeGenerator::CodeGenerator(SemanticAnalyzer::AnalysisResult result, bool is64BitTarget,
+        const std::map<std::string, ModuleData> &fileIdMap) : result(std::move(result)), module(is64BitTarget), fileIdMap(fileIdMap) {
+
+    }
+
     CodeGenerator::~CodeGenerator() {
     }
 
@@ -65,7 +71,7 @@ namespace Oxy {
             bool isVariadic = func->IsVariadic();
 
             Qbe::FunctionFlags flags = Qbe::FunctionFlags::None;
-            std::string symbol = func->GetName();
+            std::string symbol = func->GetObfuscatedName();
             bool isExtern = false;
             if (func->GetAttributes().size() > 0) {
                 for (const auto& attr : func->GetAttributes()) {
@@ -95,9 +101,6 @@ namespace Oxy {
                         } else {
                             errors.push_back({"'symbol' attribute argument must be a string literal", "", arg->GetLine(), arg->GetColumn()});
                         }
-                    }
-                    else {
-                        errors.push_back({"Unknown attribute '" + attr->GetName() + "' on function '" + func->GetName() + "'", "", attr->GetLine(), attr->GetColumn()});
                     }
                 }
             }
@@ -372,15 +375,53 @@ namespace Oxy {
         // TODO: Implement
     }
 
+    std::string CodeGenerator::ResolveFunctionName(Ast::Expression *expression) {
+        if (auto identifierExpr = dynamic_cast<Ast::IdentifierExpression *>(expression)) {
+            return identifierExpr->ToString();
+        } else if (auto memberAccessExpr = dynamic_cast<Ast::MemberAccessExpression *>(expression)) {
+            // For member access, we need to resolve the type of the left hand side and find the function in that type's method table.
+            auto leftType = ResolveExpressionType(memberAccessExpr->GetObject());
+            if (!leftType) {
+                errors.push_back({"Could not resolve type of expression in member access", "", memberAccessExpr->GetLine(), memberAccessExpr->GetColumn()});
+                return "";
+            }
+
+            if (auto *import = dynamic_cast<ImportType *>(leftType)) {
+                auto moduleName = import->GetModuleName();
+                std::string functionName = memberAccessExpr->GetMemberName();
+                for (const auto& exports : fileIdMap[moduleName].exports) {
+                    if (exports.name == functionName && exports.type == ExportType::Function) {
+                        return exports.symbolName;
+                    }
+                }
+                errors.push_back({"Function '" + functionName + "' not found in module '" + moduleName + "'", "", memberAccessExpr->GetLine(), memberAccessExpr->GetColumn()});
+                return "";
+            }
+
+            if (leftType->GetLiteralType() != LiteralType::UserDefined) {
+                errors.push_back({"Left hand side of member access must be a user defined type", "", memberAccessExpr->GetLine(), memberAccessExpr->GetColumn()});
+                return "";
+            }
+
+            auto structType = dynamic_cast<Ast::StructType *>(leftType);
+            if (!structType) {
+                errors.push_back({"Left hand side of member access is not a struct type", "", memberAccessExpr->GetLine(), memberAccessExpr->GetColumn()});
+                return "";
+            }
+
+            // We can use the struct name and the member name to construct the function name. For example, if we have "foo.bar()", we can look for a function named "foo_bar".
+            return structType->GetName() + "_" + memberAccessExpr->GetMemberName();
+        } else {
+            errors.push_back({"Unsupported callee expression type in function call", "", expression->GetLine(), expression->GetColumn()});
+            return "";
+        }
+    }
+
     void CodeGenerator::Visit(Ast::FunctionCallExpression *functionCallExpression) {
         getCurrentBlock()->addComment("Begin function call '" + functionCallExpression->ToString() + "'");
 
         auto calleeExpr = functionCallExpression->GetCallee();
-        auto identifierExpr = dynamic_cast<Ast::IdentifierExpression*>(calleeExpr);
-        if (!identifierExpr) {
-            errors.push_back({"Only direct function calls are supported for now", "", calleeExpr->GetLine(), calleeExpr->GetColumn()});
-            return;
-        }
+        std::string functionName = ResolveFunctionName(calleeExpr);
 
         std::vector<Qbe::ValueReference> args;
         for (const auto& arg : functionCallExpression->GetArguments()) {
@@ -392,16 +433,21 @@ namespace Oxy {
             }
         }
 
-        auto sym = ResolveSymbol(identifierExpr->ToString());
+        auto sym = ResolveSymbol(functionName);
+
+        if (!sym) {
+            errors.push_back({"Undefined function: " + functionName, "", calleeExpr->GetLine(), calleeExpr->GetColumn()});
+            return;
+        }
 
         // function pointer
         auto functionType = dynamic_cast<FunctionType*>(sym->type);
         if (!functionType) {
-            errors.push_back({"Symbol '" + identifierExpr->ToString() + "' is not a function", "", identifierExpr->GetLine(), identifierExpr->GetColumn()});
+            errors.push_back({"Symbol '" + functionName + "' is not a function", "", functionCallExpression->GetLine(), functionCallExpression->GetColumn()});
             return;
         }
 
-        getCurrentBlock()->addCall(EmitExpression(identifierExpr),
+        getCurrentBlock()->addCall(EmitExpression(calleeExpr),
             GetQbeType(functionType->GetReturnType()),
             functionType->IsVariadic(),
             functionType->GetParameterTypes().size(),
@@ -602,6 +648,9 @@ namespace Oxy {
     }
 
     void CodeGenerator::Visit(Ast::ImportStatement *importStatement) {
+        // Import as a type
+        auto importType = new ImportType(importStatement->GetModuleName(), fileIdMap[importStatement->GetModuleName()]);
+        currentScope->symbols[importStatement->GetAlias()] = {importStatement->GetAlias(), importType, SemanticAnalyzer::Symbol::Kind::Import, importStatement->GetLine(), importStatement->GetColumn()};
     }
 
     void CodeGenerator::Visit(Ast::ContinueStatement *continueStatement) {

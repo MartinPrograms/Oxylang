@@ -18,6 +18,9 @@ int main(int argc, char* argv[]) {
     bool is32Bit = false;
     app.add_flag("--32", is32Bit, "Compile for 32-bit target");
 
+    std::string fileIdentifiers;
+    app.add_option("-f,--file-ids", fileIdentifiers, "Semicolon-separated list of other modules (e.g., 'oxy/math=/path/to/math.json')");
+
     CLI11_PARSE(app, argc, argv);
 
     std::string inputSource;
@@ -35,6 +38,22 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    Compiler compiler({inputSource, inputFile, outputFile, is32Bit});
+    std::map<std::string, std::string> fileIdMap;
+    if (!fileIdentifiers.empty()) {
+        std::istringstream ss(fileIdentifiers);
+        std::string token;
+        while (std::getline(ss, token, ';')) {
+            auto eqPos = token.find('=');
+            if (eqPos == std::string::npos) {
+                spdlog::error("Invalid file identifier format: '{}'. Expected 'id=path'", token);
+                return 1;
+            }
+            std::string id = token.substr(0, eqPos);
+            std::string path = token.substr(eqPos + 1);
+            fileIdMap[id] = path;
+        }
+    }
+
+    Compiler compiler({inputSource, inputFile, outputFile, is32Bit, fileIdMap});
     return compiler.Compile();
 }
