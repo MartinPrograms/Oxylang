@@ -7,4 +7,13 @@
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\Oxylang\Oxylang.csproj" />
+      <ProjectReference Include="..\submodules\QbeGenerator\QbeGenerator\QbeGenerator.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="CommandLineParser" Version="2.9.1" />
+    </ItemGroup>
+
 </Project>

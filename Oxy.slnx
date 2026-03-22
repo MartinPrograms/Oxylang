@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="Oxylang.Build/Oxylang.Build.csproj" />
   <Project Path="Oxylang/Oxylang.csproj" />
+  <Project Path="submodules/QbeGenerator/QbeGenerator/QbeGenerator.csproj" />
 </Solution>

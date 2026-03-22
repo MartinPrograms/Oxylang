@@ -1,0 +1,29 @@
+@symbol("printf") @extern fn printf(format: ptr<u8>, ...) -> i32;
+
+struct Point {
+    x: f64;
+    y: f64;
+}
+
+struct Circle {
+    center: Point;
+    radius: f64;
+}
+
+@entry
+fn main() -> u8 {
+    let a: i32 = 42;
+    let b: f64 = 3.14;
+    printf("Hello, world! a = %d, b = %f\n", a, b);
+    a = 100;
+    b += 2.71;
+    printf("Updated values: a = %d, b = %f\n", a, b);
+
+    let point = Point { x: 1.0, y: 2.0 };
+    printf("Point: (%f, %f)\n", point.x, point.y);
+
+    let circle = Circle { center: point, radius: 5.0 };
+    printf("Circle: center = (%f, %f), radius = %f\n", circle.center.x, circle.center.y, circle.radius);
+
+    return 0u8;
+}
