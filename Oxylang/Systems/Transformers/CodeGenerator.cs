@@ -430,6 +430,14 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                     }
                 }
             }
+            else if (targetType is StructType structType)
+            {
+                var field = structType.Fields.FirstOrDefault(x => x.Name == memberAccessExpr.MemberName);
+                if (field != null)
+                {
+                    return field.Type;
+                }
+            }
         }
 
         if (node is StructInitializerExpression structInitExpr)
