@@ -1,19 +1,19 @@
 {
   "version": 2,
-  "dgSpecHash": "y1oSWp80jGU=",
+  "dgSpecHash": "GEdSeOYpPPI=",
   "success": true,
-  "projectFilePath": "/home/marten/RiderProjects/Oxy/Oxylang/Oxylang.csproj",
+  "projectFilePath": "/Users/martin/RiderProjects/Oxylang/Oxylang/Oxylang.csproj",
   "expectedPackageFiles": [
-    "/home/marten/.nuget/packages/quickgraph/3.6.61119.7/quickgraph.3.6.61119.7.nupkg.sha512"
+    "/Users/martin/.nuget/packages/quickgraph/3.6.61119.7/quickgraph.3.6.61119.7.nupkg.sha512"
   ],
   "logs": [
     {
       "code": "NU1701",
       "level": "Warning",
       "message": "Package 'QuickGraph 3.6.61119.7' was restored using '.NETFramework,Version=v4.6.1, .NETFramework,Version=v4.6.2, .NETFramework,Version=v4.7, .NETFramework,Version=v4.7.1, .NETFramework,Version=v4.7.2, .NETFramework,Version=v4.8, .NETFramework,Version=v4.8.1' instead of the project target framework 'net10.0'. This package may not be fully compatible with your project.",
-      "projectPath": "/home/marten/RiderProjects/Oxy/Oxylang/Oxylang.csproj",
+      "projectPath": "/Users/martin/RiderProjects/Oxylang/Oxylang/Oxylang.csproj",
       "warningLevel": 1,
-      "filePath": "/home/marten/RiderProjects/Oxy/Oxylang/Oxylang.csproj",
+      "filePath": "/Users/martin/RiderProjects/Oxylang/Oxylang/Oxylang.csproj",
       "libraryId": "QuickGraph",
       "targetGraphs": [
         "net10.0"

@@ -20,8 +20,234 @@ public class StatementParser : IParser<Node?>
             return ParseReturnStatement();
         }
         
+        if (parser.MatchKeyword(Language.Keyword.If) != null)
+        {
+            return ParseIfStatement();
+        }
+        
+        if (parser.MatchKeyword(Language.Keyword.While) != null)
+        {
+            return ParseWhileStatement();
+        }
+
+        if (parser.MatchKeyword(Language.Keyword.For) != null)
+        {
+            return ParseForStatement();
+        }
+        
+        if (parser.MatchKeyword(Language.Keyword.Continue) != null)
+        {
+            if (parser.MatchSyntax(Language.Syntax.Semicolon) == null)
+            {
+                _parser.Logger.LogError("Expected ';' after 'continue'", _parser.SourceFile, _parser.CurrentLocation);
+                return null;
+            }
+            
+            return new ContinueStatement(_parser.CurrentLocation);
+        }
+        
+        if (parser.MatchKeyword(Language.Keyword.Break) != null)
+        {
+            if (parser.MatchSyntax(Language.Syntax.Semicolon) == null)
+            {
+                _parser.Logger.LogError("Expected ';' after 'break'", _parser.SourceFile, _parser.CurrentLocation);
+                return null;
+            }
+            
+            return new BreakStatement(_parser.CurrentLocation);
+        }
+        
         // As a last resort, try to parse an expression statement. This allows for function calls and other expressions to be used as statements.
         return ParseExpressionStatement();
+    }
+
+    private Node? ParseForStatement()
+    {
+        Node? initializer = null;
+        Expression? condition = null;
+        Expression? increment = null;
+        
+        if (_parser.MatchSyntax(Language.Syntax.LeftParen) == null)
+        {
+            _parser.Logger.LogError("Expected '(' after 'for'", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+        
+        if (_parser.MatchSyntax(Language.Syntax.Semicolon) == null)
+        {
+            if (_parser.MatchKeyword(Language.Keyword.Let) != null)
+            {
+                initializer = ParseVariableDeclaration();
+            }
+            else
+            {
+                initializer = _parser.ParseExpression();
+                if (initializer == null)
+                {
+                    _parser.Logger.LogError("Failed to parse for loop initializer", _parser.SourceFile, _parser.CurrentLocation);
+                    return null;
+                }
+            }
+        }
+        
+        if (_parser.MatchSyntax(Language.Syntax.Semicolon) == null)
+        {
+            condition = _parser.ParseExpression();
+            if (condition == null)
+            {
+                _parser.Logger.LogError("Failed to parse for loop condition", _parser.SourceFile, _parser.CurrentLocation);
+                return null;
+            }
+            
+            if (_parser.MatchSyntax(Language.Syntax.Semicolon) == null)
+            {
+                _parser.Logger.LogError("Expected ';' after for loop condition", _parser.SourceFile, _parser.CurrentLocation);
+                return null;
+            }
+        }
+        
+        if (_parser.MatchSyntax(Language.Syntax.RightParen) == null)
+        {
+            increment = _parser.ParseExpression();
+            if (increment == null)
+            {
+                _parser.Logger.LogError("Failed to parse for loop increment", _parser.SourceFile, _parser.CurrentLocation);
+                return null;
+            }
+            
+            if (_parser.MatchSyntax(Language.Syntax.RightParen) == null)
+            {
+                _parser.Logger.LogError("Expected ')' after for loop increment", _parser.SourceFile, _parser.CurrentLocation);
+                return null;
+            }
+        }
+        
+        var bodyParser = _parser.ParseBlock();
+        if (bodyParser == null)
+        {
+            _parser.Logger.LogError("Failed to parse for loop body", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+        
+        return new ForStatement(_parser.CurrentLocation, initializer, condition, increment, bodyParser);
+    }
+
+    private Node? ParseWhileStatement()
+    {
+        // we are now after the while keyword, so we expect (expr) { block }
+        if (_parser.MatchSyntax(Language.Syntax.LeftParen) == null)
+        {
+            _parser.Logger.LogError("Expected '(' after 'while'", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+
+        var conditionParser = _parser.ParseExpression();
+        if (conditionParser == null)
+        {
+            _parser.Logger.LogError("Failed to parse while condition", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+
+        if (_parser.MatchSyntax(Language.Syntax.RightParen) == null)
+        {
+            _parser.Logger.LogError("Expected ')' after while condition", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+
+        var bodyParser = _parser.ParseBlock();
+        if (bodyParser == null)
+        {
+            _parser.Logger.LogError("Failed to parse while body", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+
+        return new WhileStatement(_parser.CurrentLocation, conditionParser, bodyParser);
+    }
+
+    private Node? ParseIfStatement()
+    {
+        // we are now after the if keyword, so we expect (expr) { block } else or else if (expr) { block } or just else { block }
+        if (_parser.MatchSyntax(Language.Syntax.LeftParen) == null)
+        {
+            _parser.Logger.LogError("Expected '(' after 'if'", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+
+        var conditionParser = _parser.ParseExpression();
+        if (conditionParser == null)
+        {
+            _parser.Logger.LogError("Failed to parse if condition", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+
+        if (_parser.MatchSyntax(Language.Syntax.RightParen) == null)
+        {
+            _parser.Logger.LogError("Expected ')' after if condition", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+
+        var thenBlockParser = _parser.ParseBlock();
+        if (thenBlockParser == null)
+        {
+            _parser.Logger.LogError("Failed to parse if then block", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+
+        List<IfStatement.Branch> elseIfBranches = new List<IfStatement.Branch>();
+        Node? elseBranch = null;
+        while (_parser.MatchKeyword(Language.Keyword.Else) != null)
+        {
+            if (_parser.MatchKeyword(Language.Keyword.If) != null)
+            {
+                if (_parser.MatchSyntax(Language.Syntax.LeftParen) == null)
+                {
+                    _parser.Logger.LogError("Expected '(' after 'else if'", _parser.SourceFile,
+                        _parser.CurrentLocation);
+                    return null;
+                }
+
+                var elseIfConditionParser = _parser.ParseExpression();
+                if (elseIfConditionParser == null)
+                {
+                    _parser.Logger.LogError("Failed to parse else if condition", _parser.SourceFile,
+                        _parser.CurrentLocation);
+                    return null;
+                }
+                
+                if (_parser.MatchSyntax(Language.Syntax.RightParen) == null)
+                {
+                    _parser.Logger.LogError("Expected ')' after else if condition", _parser.SourceFile,
+                        _parser.CurrentLocation);
+                    return null;
+                }
+                
+                var elseIfBlockParser = _parser.ParseBlock();
+                if (elseIfBlockParser == null)
+                {
+                    _parser.Logger.LogError("Failed to parse else if block", _parser.SourceFile,
+                        _parser.CurrentLocation);
+                    return null;
+                }
+                
+                elseIfBranches.Add(new IfStatement.Branch(elseIfConditionParser, elseIfBlockParser));
+            }
+            else
+            {
+                var elseBlockParser = _parser.ParseBlock();
+                if (elseBlockParser == null)
+                {
+                    _parser.Logger.LogError("Failed to parse else block", _parser.SourceFile,
+                        _parser.CurrentLocation);
+                    return null;
+                }
+                
+                elseBranch = elseBlockParser;
+                break; // else must be the last branch, so we break out of the loop
+            }
+        }
+
+        return new IfStatement(_parser.CurrentLocation, new IfStatement.Branch(conditionParser, thenBlockParser),
+            elseIfBranches, elseBranch as BlockStatement);
     }
 
     private Node? ParseExpressionStatement()

@@ -301,17 +301,24 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
         var identifierToken = MatchIdentifier();
         if (identifierToken != null)
         {
+            var indexBackup = _currentIndex;
+            var madeMistake = false;
             List<TypeNode> genericArgs = new();
             if (MatchOperator(Language.Operator.LessThan) != null)
             {
                 do
                 {
                     var argType = ParseType();
-                    if (argType == null) return null;
+                    if (argType == null)
+                    {
+                        _currentIndex = indexBackup;
+                        madeMistake = true;
+                        break;
+                    }
                     genericArgs.Add(argType);
                 } while (MatchSyntax(Language.Syntax.Comma) != null);
 
-                if (CloseGeneric() == null) return null;
+                if (!madeMistake && CloseGeneric() == null) return null;
             }
 
             // If the next token is a left parenthesis, this is a function call
@@ -431,6 +438,11 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
             return new FunctionType(CurrentLocation, parameterTypes, new VoidType(CurrentLocation), isVariadic);
         }
 
+        if (MatchIdentifier("void") != null)
+        {
+            return new VoidType(CurrentLocation);
+        }
+        
         if (MatchKeyword(Language.Keyword.Ptr) != null)
         {
             if (MatchOperator(Language.Operator.LessThan) == null) return null;

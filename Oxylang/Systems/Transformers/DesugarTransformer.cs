@@ -165,4 +165,39 @@ public class DesugarTransformer : IAstTransformer
     {
         return node;
     }
+
+    public Node Visit(IfStatement node)
+    {
+        // Desugar if statements with else if branches into nested if statements
+        BlockStatement elseBranch = node.ElseBranch ?? new BlockStatement(node.Location, new List<Node>());
+        foreach (var elseIfBranch in node.ElseIfBranches.AsEnumerable().Reverse())
+        {
+            elseBranch = new BlockStatement(node.Location, new List<Node>
+            {
+                new IfStatement(node.Location, elseIfBranch, [], elseBranch)
+            });
+        }
+        
+        return new IfStatement(node.Location, node.MainBranch, [], elseBranch);
+    }
+
+    public Node Visit(WhileStatement node)
+    {
+        return node;
+    }
+
+    public Node Visit(ForStatement node)
+    {
+        return node;
+    }
+
+    public Node Visit(BreakStatement node)
+    {
+        return node;
+    }
+
+    public Node Visit(ContinueStatement node)
+    {
+        return node;
+    }
 }

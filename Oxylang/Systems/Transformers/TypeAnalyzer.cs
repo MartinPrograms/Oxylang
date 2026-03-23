@@ -147,10 +147,12 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
 
     public void Visit(BlockStatement node)
     {
+        _scopeStack.Push(new());
         foreach (var statement in node.Statements)
         {
             statement.Accept(this);
         }
+        _scopeStack.Pop();
     }
 
     public void Visit(CastExpression node)
@@ -396,6 +398,27 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
             return structType;
         }
 
+        if (type is NamedType namedType)
+        {
+            var structInfo = _structs.FirstOrDefault(x => x.Name == namedType.Name);
+            if (structInfo != null)
+            {
+                return new StructType(namedType.Location, structInfo.Name,
+                    structInfo.Fields.Select(x => new VariableDeclaration(x.Name, x.Type, [], null, x.Type.Location))
+                        .ToList());
+            }
+            
+            var functionInfo = _functions.FirstOrDefault(x => x.Name == namedType.Name);
+            if (functionInfo != null)
+            {
+                return new FunctionType(namedType.Location, functionInfo.Parameters.Select(p => p.Type).ToList(),
+                    functionInfo.ReturnType, functionInfo.IsVariadic);
+            }
+            
+            Error($"Named type '{namedType.Name}' is not defined.", namedType.Location);
+            return null;
+        }
+        
         return type; // For primitive types like int, float, etc., we assume they are always valid and just return them as is.
     }
 
@@ -779,33 +802,41 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
 
     private bool AreTypesCompatible(TypeNode explicitType, TypeNode initializerType)
     {
-        if (explicitType is NamedType namedType)
+        if (explicitType is NamedType explicitNamed)
         {
-            var structInfo = _structs.FirstOrDefault(x => x.Name == namedType.Name);
-            if (structInfo != null)
-            {
-                return initializerType is StructType initializerStruct && initializerStruct.Name == namedType.Name;
-            }
-            
-            var functionInfo = _functions.FirstOrDefault(x => x.Name == namedType.Name);
-            if (functionInfo != null)
-            {
-                return initializerType is FunctionType initializerFunction && initializerFunction.GetString(0) == functionInfo.ReturnType.GetString(0);
-            }
+            explicitType = ResolveType(explicitNamed);
         }
         
-        if (explicitType is PointerType explicitPointerType)
+        if (initializerType is NamedType initializerNamed)
         {
-            if (initializerType is PointerType initializerPointerType)
-            {
-                return AreTypesCompatible(explicitPointerType.BaseType, initializerPointerType.BaseType);
-            }
-            else
-            {
-                return false;
-            }
+            initializerType = ResolveType(initializerNamed);
         }
         
+        if (explicitType == null || initializerType == null)
+        {
+            return false;
+        }
+
+        if (explicitType is StructType explicitStruct && initializerType is StructType initializerStruct)
+        {
+            return explicitStruct.Name == initializerStruct.Name;
+        }
+        
+        if (explicitType is FunctionType explicitFunction && initializerType is FunctionType initializerFunction)
+        {
+            return explicitFunction.GetString(0) == initializerFunction.GetString(0);
+        }
+        
+        if (explicitType is PointerType explicitPointer && initializerType is PointerType initializerPointer)
+        {
+            return AreTypesCompatible(explicitPointer.BaseType, initializerPointer.BaseType);
+        }
+
+        if (explicitType is PrimaryType explicitPrimary && initializerType is PrimaryType initializerPrimary)
+        {
+            return explicitPrimary.Kind == initializerPrimary.Kind;
+        }
+
         return explicitType.GetString(0) == initializerType.GetString(0);
     }
 
@@ -908,6 +939,91 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
         }
         
         Error($"Cannot access member '{node.MemberName}' of non-struct type '{objectType.GetString(0)}'.", node.Location);
+    }
+
+    public void Visit(IfStatement node)
+    {
+        // First visit the conditional
+        var conditionType = ResolveType(node.MainBranch.Condition);
+        if (conditionType == null)
+        {
+            Error($"Could not resolve type of condition in if statement.", node.MainBranch.Condition.Location);
+        }
+
+        conditionType!.Accept(this);
+        
+        // Then visit the main branch
+        Visit(node.MainBranch.Body);
+        
+        // Then visit the else-if branches
+        foreach (var elseIfBranch in node.ElseIfBranches)
+        {
+            var elseIfConditionType = ResolveType(elseIfBranch.Condition);
+            if (elseIfConditionType == null)
+            {
+                Error($"Could not resolve type of condition in else-if branch of if statement.",
+                    elseIfBranch.Condition.Location);
+            }
+
+            elseIfConditionType!.Accept(this);
+            Visit(elseIfBranch.Body);
+        }
+        
+        // Finally visit the else branch, if it exists
+        if (node.ElseBranch != null)
+        {
+            Visit(node.ElseBranch);
+        }
+    }
+
+    public void Visit(WhileStatement node)
+    {
+        var conditionType = ResolveType(node.Condition);
+        if (conditionType == null)
+        {
+            Error($"Could not resolve type of condition in while statement.", node.Condition.Location);
+        }
+
+        conditionType!.Accept(this);
+        Visit(node.Body);
+    }
+
+    public void Visit(ForStatement node)
+    {
+        if (node.Initializer != null)
+        {
+            node.Initializer.Accept(this);
+        }
+        
+        if (node.Condition != null)
+        {
+            var conditionType = ResolveType(node.Condition);
+            if (conditionType == null)
+            {
+                Error($"Could not resolve type of condition in for statement.", node.Condition.Location);
+            }
+            else
+            {
+                conditionType.Accept(this);
+            }
+        }
+        
+        if (node.Increment != null)
+        {
+            node.Increment.Accept(this);
+        }
+        
+        Visit(node.Body);
+    }
+
+    public void Visit(BreakStatement node)
+    {
+        
+    }
+
+    public void Visit(ContinueStatement node)
+    {
+        
     }
 
     private Dictionary<string, TypeNode> BuildSubstitutions(FunctionInfo function, FunctionCallExpression call)

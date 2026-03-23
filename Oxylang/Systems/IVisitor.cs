@@ -28,6 +28,15 @@ public interface IVisitor
     void Visit(AddressOfExpression node); // addr(x)
     void Visit(DereferenceExpression node); // deref(x)
     void Visit(MemberAccessExpression node); // a.b or a->b
+    
+    // Conditionals
+    void Visit(IfStatement node); // if (condition) { ... } else { ... }
+    void Visit(WhileStatement node); // while (condition) { ... }
+    void Visit(ForStatement node); // for (initializer; condition; increment) { ... }
+    
+    // Loops
+    void Visit(BreakStatement node); // break;
+    void Visit(ContinueStatement node); // continue;
 }
 
 public interface IAstTransformer
@@ -53,4 +62,13 @@ public interface IAstTransformer
     Node Visit(AddressOfExpression node); // addr(x)
     Node Visit(DereferenceExpression node); // deref(x)
     Node Visit(MemberAccessExpression node); // a.b or a->b
+    
+    // Conditionals
+    Node Visit(IfStatement node); // if (condition) { ... } else { ... }
+    Node Visit(WhileStatement node); // while (condition) { ... }
+    Node Visit(ForStatement node); // for (initializer; condition; increment) { ... }
+    
+    // Loops
+    Node Visit(BreakStatement node); // break;
+    Node Visit(ContinueStatement node); // continue;
 }
