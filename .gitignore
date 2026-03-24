@@ -1,1 +1,6 @@
 /cmake-build-debug/
+/Oxylang/obj
+/Oxylang/bin
+/Oxylang.Build/obj
+/Oxylang.Build/bin
+
