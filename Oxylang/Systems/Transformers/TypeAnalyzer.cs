@@ -990,6 +990,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
 
     public void Visit(ForStatement node)
     {
+        _scopeStack.Push(new Dictionary<string, TypeNode>());
         if (node.Initializer != null)
         {
             node.Initializer.Accept(this);
@@ -1014,6 +1015,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
         }
         
         Visit(node.Body);
+        _scopeStack.Pop();
     }
 
     public void Visit(BreakStatement node)

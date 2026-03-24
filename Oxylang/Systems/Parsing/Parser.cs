@@ -64,7 +64,7 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
 
                 if (operatorToken.Value == Language.Operator.Equals)
                 {
-                    var rightValue = ParseExpression(Language.LowestPrecedence);
+                    var rightValue = ParseExpression(Language.HighestPrecedence);
                     if (rightValue == null) return null;
                     
                     if (left is not LeftValue leftValue)
@@ -396,7 +396,6 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
             return new VariableExpression(CurrentLocation, identifierToken.Value);
         }
 
-        _logger.LogError("Expected expression", SourceFile, CurrentLocation);
         return null;
     }
 

@@ -45,7 +45,8 @@ public class DesugarTransformer : IAstTransformer
 
     public Node Visit(AssignmentExpression node)
     {
-        return node;
+        var newRight = node.Right.Visit(this);
+        return new AssignmentExpression(node.Location, node.Left, (Expression)newRight);
     }
 
     public Node Visit(BinaryExpression node)
@@ -168,27 +169,25 @@ public class DesugarTransformer : IAstTransformer
 
     public Node Visit(IfStatement node)
     {
-        // Desugar if statements with else if branches into nested if statements
-        BlockStatement elseBranch = node.ElseBranch ?? new BlockStatement(node.Location, new List<Node>());
-        foreach (var elseIfBranch in node.ElseIfBranches.AsEnumerable().Reverse())
-        {
-            elseBranch = new BlockStatement(node.Location, new List<Node>
-            {
-                new IfStatement(node.Location, elseIfBranch, [], elseBranch)
-            });
-        }
-        
-        return new IfStatement(node.Location, node.MainBranch, [], elseBranch);
+        return node;
     }
 
     public Node Visit(WhileStatement node)
     {
-        return node;
+        var condition = node.Condition.Visit(this) as Expression;
+        var body = (BlockStatement)node.Body.Visit(this);
+        
+        return new WhileStatement(node.Location, condition, body);
     }
 
     public Node Visit(ForStatement node)
     {
-        return node;
+        var initializer = node.Initializer?.Visit(this);
+        var condition = node.Condition?.Visit(this) as Expression;
+        var increment = node.Increment?.Visit(this) as Expression;
+        var body = (BlockStatement)node.Body.Visit(this);   
+        
+        return new ForStatement(node.Location, initializer, condition, increment, body);
     }
 
     public Node Visit(BreakStatement node)

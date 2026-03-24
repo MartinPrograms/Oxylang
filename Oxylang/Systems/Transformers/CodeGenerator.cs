@@ -2,6 +2,7 @@ using System.Drawing;
 using Oxylang.Systems.Parsing;
 using Oxylang.Systems.Parsing.Nodes;
 using QbeGenerator;
+using QbeGenerator.Instructions;
 
 namespace Oxylang.Systems.Transformers;
 
@@ -19,6 +20,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
     private Stack<QbeBlock> _continueBlocks = new ();
     private Stack<QbeBlock> _breakBlocks = new ();
     private Stack<QbeBlock> _blocks = new ();
+    private QbeFunction? _currentFunction;
 
     public CodeGeneratorResult Transform(Root node)
     {
@@ -253,6 +255,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
         _scopes.Push(new());
 
+        _currentFunction = _functions[function.Name].qbe;
         var block = _functions[function.Name].qbe.BuildEntryBlock();
         _blocks.Push(block);
         
@@ -286,6 +289,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         }
         
         _scopes.Pop();
+        _currentFunction = null;
     }
 
     public void Visit(ImportStatement node)
@@ -300,7 +304,27 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
     public void Visit(PostfixExpression node)
     {
+        // Convert to i = i + 1 or i = i - 1 depending on the operator, then visit the resulting assignment expression.
+        var one = new QbeLiteral(QbePrimitive.Int32(false), 1);
+        var leftValue = VisitExpression(node.Primary, true);
+        if (leftValue == null)
+        {
+            _logger.LogError("Invalid postfix expression.", _sourceFile, node.Location);
+            return;
+        }
         
+        var binaryOperator = node.Operator switch
+        {
+            Language.Operator.Increment => Language.Operator.Plus,  
+            Language.Operator.Decrement => Language.Operator.Minus,
+            _ => throw new InvalidOperationException("Invalid postfix operator")
+        };
+
+        var binaryExpr = new BinaryExpression(node.Location, node.Primary, binaryOperator,
+            new LiteralExpression(node.Location, 1ul, GetNodeType(node.Primary)!));
+        
+        var assignmentExpr = new AssignmentExpression(node.Location, (LeftValue)node.Primary, binaryExpr);
+        Visit(assignmentExpr);
     }
 
     public void Visit(ReturnStatement node)
@@ -361,7 +385,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         // Store the initializer value if it exists, otherwise call memcpy
         if (value != null)
         {
-            if (node.Type is PrimaryType)
+            if (value.PrimitiveEnum is QbePrimitive and not { PrimitiveEnum: QbePrimitiveEnum.Pointer })
             {
                 _blocks.Peek().Store(local, value);
             }
@@ -401,17 +425,125 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
     public void Visit(IfStatement node)
     {
-        
+        var afterBlock = _currentFunction!.BuildBlock("if_after");
+        var mainBlock = _currentFunction.BuildBlock("if_then");
+
+        // Region: build the chain of false-branch targets
+        QbeBlock firstFalseBlock = BuildFalseBlock(node, 0, afterBlock);
+
+        var condition = VisitExpression(node.MainBranch.Condition);
+        _blocks.Peek().JumpIfNotZero(condition, mainBlock, firstFalseBlock);
+
+        _blocks.Push(mainBlock);
+        node.MainBranch.Body.Accept(this);
+        if (!_blocks.Peek().HasTerminator())
+            _blocks.Peek().Jump(afterBlock);
+
+        var currentFalseBlock = firstFalseBlock;
+        for (int i = 0; i < node.ElseIfBranches.Count; i++)
+        {
+            var branch = node.ElseIfBranches[i];
+            var bodyBlock = _currentFunction.BuildBlock("else_if_then");
+            QbeBlock nextFalseBlock = BuildFalseBlock(node, i + 1, afterBlock);
+
+            _blocks.Push(currentFalseBlock);
+            var elseIfCondition = VisitExpression(branch.Condition);
+            _blocks.Peek().JumpIfNotZero(elseIfCondition, bodyBlock, nextFalseBlock);
+
+            _blocks.Push(bodyBlock);
+            branch.Body.Accept(this);
+            if (!_blocks.Peek().HasTerminator())
+                _blocks.Peek().Jump(afterBlock);
+
+            currentFalseBlock = nextFalseBlock;
+        }
+
+        if (node.ElseBranch != null)
+        {
+            _blocks.Push(currentFalseBlock);
+            node.ElseBranch.Accept(this);
+            if (!_blocks.Peek().HasTerminator())
+                _blocks.Peek().Jump(afterBlock);
+        }
+
+        _blocks.Push(afterBlock);
+    }
+
+    private QbeBlock BuildFalseBlock(IfStatement node, int index, QbeBlock afterBlock)
+    {
+        if (index < node.ElseIfBranches.Count)
+            return _currentFunction!.BuildBlock("else_if_check");
+        if (node.ElseBranch != null)
+            return _currentFunction!.BuildBlock("if_else");
+        return afterBlock;
     }
 
     public void Visit(WhileStatement node)
     {
+        var conditionBlock = _currentFunction!.BuildBlock("while_condition");
+        var bodyBlock = _currentFunction.BuildBlock("while_body");
+        var afterBlock = _currentFunction.BuildBlock("while_after");
+
+        _blocks.Peek().Jump(conditionBlock);
+
+        _blocks.Push(conditionBlock);
+        var condition = VisitExpression(node.Condition);
+        _blocks.Peek().JumpIfNotZero(condition, bodyBlock, afterBlock);
         
+        _blocks.Push(bodyBlock);
+        _continueBlocks.Push(conditionBlock);
+        _breakBlocks.Push(afterBlock);
+        node.Body.Accept(this);
+        _breakBlocks.Pop();
+        _continueBlocks.Pop();
+
+        if (!_blocks.Peek().HasTerminator())
+            _blocks.Peek().Jump(conditionBlock);
+
+        _blocks.Pop();
+        _blocks.Push(afterBlock);
     }
 
     public void Visit(ForStatement node)
     {
+        if (node.Initializer != null)
+        {
+            node.Initializer.Accept(this);
+        }
         
+        var conditionBlock = _currentFunction!.BuildBlock("for_condition");
+        var bodyBlock = _currentFunction.BuildBlock("for_body");
+        var incrementBlock = _currentFunction.BuildBlock("for_increment");
+        var afterBlock = _currentFunction.BuildBlock("for_after");
+        
+        _blocks.Peek().Jump(conditionBlock);
+        _blocks.Push(conditionBlock);
+        
+        var condition = node.Condition != null ? VisitExpression(node.Condition) : new QbeLiteral(QbePrimitive.Int32(false), 1);
+        _blocks.Peek().JumpIfNotZero(condition, bodyBlock, afterBlock);
+        
+        _blocks.Push(bodyBlock);
+        _continueBlocks.Push(incrementBlock);
+        _breakBlocks.Push(afterBlock);
+        node.Body.Accept(this);
+        _breakBlocks.Pop();
+        _continueBlocks.Pop();
+        
+        if (!_blocks.Peek().HasTerminator())
+            _blocks.Peek().Jump(incrementBlock);
+        
+        _blocks.Push(incrementBlock);
+        if (node.Increment != null)
+        {
+            node.Increment.Accept(this);
+        }
+        
+        if (!_blocks.Peek().HasTerminator())
+            _blocks.Peek().Jump(conditionBlock);
+        
+        _blocks.Pop();
+
+        _blocks.Push(afterBlock);
     }
 
     public void Visit(BreakStatement node)
@@ -488,7 +620,12 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
     }
     
     private TypeNode? GetNodeType(Node node)
-    {
+    {        
+        if (node is LiteralExpression literalExpr)
+        {
+            return literalExpr.Type;
+        }
+        
         if (node is VariableExpression variableExpr)
         {
             foreach (var scope in _scopes.Reverse())
@@ -607,7 +744,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 {
                     bool isStruct = value.type is NamedType or StructType;
                     if (isLValue || isStruct)
-                        return value.qbe;
+                        return value.qbe with { PrimitiveEnum = QbePrimitive.Pointer() };
                     
                     var loaded = _blocks.Peek().Load(value.qbe.PrimitiveEnum, value.qbe);
                     return loaded;
@@ -636,6 +773,12 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 Language.Operator.Asterisk => _blocks.Peek().Mul(left, right),
                 Language.Operator.Slash => _blocks.Peek().Div(left, right),
                 Language.Operator.Percent => _blocks.Peek().Rem(left, right),
+                Language.Operator.DoubleEquals => _blocks.Peek().Equality(EqualityType.Equal, left, right),
+                Language.Operator.NotEquals => _blocks.Peek().Equality(EqualityType.Inequal, left, right),
+                Language.Operator.GreaterThan => _blocks.Peek().Equality(EqualityType.GreaterThan, left, right),
+                Language.Operator.LessThan => _blocks.Peek().Equality(EqualityType.LessThan, left, right),
+                Language.Operator.GreaterThanOrEqual => _blocks.Peek().Equality(EqualityType.GreaterThanOrEqual, left, right),
+                Language.Operator.LessThanOrEqual => _blocks.Peek().Equality(EqualityType.LessThanOrEqual, left, right),
                 _ => null
             };
             

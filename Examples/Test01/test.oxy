@@ -21,6 +21,7 @@ fn print_circle(nestedThing: StupidNestedTesting) {
 
 @entry
 fn main() -> u8 {
+
     for (let i = 0; i < 10; i++) {
         printf("Loop iteration: %d\n", i);
     }
@@ -55,6 +56,5 @@ fn main() -> u8 {
         printf("Input is less than 10.\n");
     }
 
-    
     return 0u8;
 }

@@ -122,6 +122,12 @@ public class StatementParser : IParser<Node?>
             }
         }
         
+        if (_parser.MatchSyntax(Language.Syntax.LeftBrace) == null)
+        {
+            _parser.Logger.LogError("Expected '{' after for loop header", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+        
         var bodyParser = _parser.ParseBlock();
         if (bodyParser == null)
         {
@@ -151,6 +157,12 @@ public class StatementParser : IParser<Node?>
         if (_parser.MatchSyntax(Language.Syntax.RightParen) == null)
         {
             _parser.Logger.LogError("Expected ')' after while condition", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+        
+        if (_parser.MatchSyntax(Language.Syntax.LeftBrace) == null)
+        {
+            _parser.Logger.LogError("Expected '{' after 'while'", _parser.SourceFile, _parser.CurrentLocation);
             return null;
         }
 
@@ -183,6 +195,12 @@ public class StatementParser : IParser<Node?>
         if (_parser.MatchSyntax(Language.Syntax.RightParen) == null)
         {
             _parser.Logger.LogError("Expected ')' after if condition", _parser.SourceFile, _parser.CurrentLocation);
+            return null;
+        }
+        
+        if (_parser.MatchSyntax(Language.Syntax.LeftBrace) == null)
+        {
+            _parser.Logger.LogError("Expected '{' after 'if'", _parser.SourceFile, _parser.CurrentLocation);
             return null;
         }
 
@@ -221,6 +239,13 @@ public class StatementParser : IParser<Node?>
                     return null;
                 }
                 
+                if (_parser.MatchSyntax(Language.Syntax.LeftBrace) == null)
+                {
+                    _parser.Logger.LogError("Expected '{' after 'else if'", _parser.SourceFile,
+                        _parser.CurrentLocation);
+                    return null;
+                }
+                
                 var elseIfBlockParser = _parser.ParseBlock();
                 if (elseIfBlockParser == null)
                 {
@@ -233,6 +258,13 @@ public class StatementParser : IParser<Node?>
             }
             else
             {
+                if (_parser.MatchSyntax(Language.Syntax.LeftBrace) == null)
+                {
+                    _parser.Logger.LogError("Expected '{' after 'else'", _parser.SourceFile,
+                        _parser.CurrentLocation);
+                    return null;
+                }
+                
                 var elseBlockParser = _parser.ParseBlock();
                 if (elseBlockParser == null)
                 {
@@ -255,7 +287,6 @@ public class StatementParser : IParser<Node?>
         var expressionParser = _parser.ParseExpression();
         if (expressionParser == null)
         {
-            _parser.Logger.LogError("Failed to parse expression statement", _parser.SourceFile, _parser.CurrentLocation);
             return null;
         }
         
