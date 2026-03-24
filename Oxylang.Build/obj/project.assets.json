@@ -139,36 +139,35 @@
     ]
   },
   "packageFolders": {
-    "/Users/martin/.nuget/packages/": {}
+    "/home/marten/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/Users/martin/RiderProjects/Oxylang/Oxylang.Build/Oxylang.Build.csproj",
+      "projectUniqueName": "/home/marten/RiderProjects/Oxy/Oxylang.Build/Oxylang.Build.csproj",
       "projectName": "Oxylang.Build",
-      "projectPath": "/Users/martin/RiderProjects/Oxylang/Oxylang.Build/Oxylang.Build.csproj",
-      "packagesPath": "/Users/martin/.nuget/packages/",
-      "outputPath": "/Users/martin/RiderProjects/Oxylang/Oxylang.Build/obj/",
+      "projectPath": "/home/marten/RiderProjects/Oxy/Oxylang.Build/Oxylang.Build.csproj",
+      "packagesPath": "/home/marten/.nuget/packages/",
+      "outputPath": "/home/marten/RiderProjects/Oxy/Oxylang.Build/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
-        "/Users/martin/.nuget/NuGet/NuGet.Config"
+        "/home/marten/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net10.0"
       ],
       "sources": {
-        "/opt/homebrew/Cellar/dotnet/10.0.102/libexec/library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
         "net10.0": {
           "targetAlias": "net10.0",
           "projectReferences": {
-            "/Users/martin/RiderProjects/Oxylang/Oxylang/Oxylang.csproj": {
-              "projectPath": "/Users/martin/RiderProjects/Oxylang/Oxylang/Oxylang.csproj"
+            "/home/marten/RiderProjects/Oxy/Oxylang/Oxylang.csproj": {
+              "projectPath": "/home/marten/RiderProjects/Oxy/Oxylang/Oxylang.csproj"
             },
-            "/Users/martin/RiderProjects/Oxylang/submodules/QbeGenerator/QbeGenerator/QbeGenerator.csproj": {
-              "projectPath": "/Users/martin/RiderProjects/Oxylang/submodules/QbeGenerator/QbeGenerator/QbeGenerator.csproj"
+            "/home/marten/RiderProjects/Oxy/submodules/QbeGenerator/QbeGenerator/QbeGenerator.csproj": {
+              "projectPath": "/home/marten/RiderProjects/Oxy/submodules/QbeGenerator/QbeGenerator/QbeGenerator.csproj"
             }
           }
         }
@@ -183,7 +182,7 @@
         "auditLevel": "low",
         "auditMode": "all"
       },
-      "SdkAnalysisLevel": "10.0.100"
+      "SdkAnalysisLevel": "10.0.200"
     },
     "frameworks": {
       "net10.0": {
@@ -210,7 +209,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/opt/homebrew/Cellar/dotnet/10.0.102/libexec/sdk/10.0.102/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "/home/marten/.dotnet/sdk/10.0.201/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.CSharp": "(,4.7.32767]",
           "Microsoft.VisualBasic": "(,10.4.32767]",

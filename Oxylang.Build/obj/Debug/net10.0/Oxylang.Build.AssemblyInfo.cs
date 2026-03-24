@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Oxylang.Build")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+98e42a138d98bb4e414ccd76d6102d920227b95a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+56a464fbcf4a3a8897915c97559574561e603187")]
 [assembly: System.Reflection.AssemblyProductAttribute("Oxylang.Build")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Oxylang.Build")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
