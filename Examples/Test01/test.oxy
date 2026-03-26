@@ -1,60 +1,70 @@
-@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
-@extern @symbol("scanf") fn scanf(format: ptr<u8>, ...) -> i32;
+@extern @symbol("InitWindow") fn init_window(width: u32, height: u32, title: ptr<u8>);
+@extern @symbol("WindowShouldClose") fn window_should_close() -> u8;
+@extern @symbol("BeginDrawing") fn begin_drawing();
+@extern @symbol("EndDrawing") fn end_drawing();
+@extern @symbol("ClearBackground") fn clear_background(color: u32);
+@extern @symbol("DrawText") fn draw_text(text: ptr<u8>, x: i32, y: i32, font_size: i32, color: u32);
+@extern @symbol("DrawCircle") fn draw_circle(x: f32, y: f32, radius: f32, color: u32);
+@extern @symbol("DrawRectangle") fn draw_rectangle(x: f32, y: f32, width: f32, height: f32, color: u32);
+@extern @symbol("IsKeyDown") fn is_key_down(key: u32) -> u8;
+@extern @symbol("GetFrameTime") fn get_frame_time() -> f32;
 
-struct Point {
-    x: f64;
-    y: f64;
+struct Paddle {
+    height: f32;
+    width: f32;
+    x: f32;
+    y: f32;
+    speed: f32;
 }
 
-struct Circle {
-    center: Point;
-    radius: f64;
+struct Ball {
+    x: f32;
+    y: f32;
+    radius: f32;
+    speed_x: f32;
+    speed_y: f32;
 }
 
-struct StupidNestedTesting {
-    circle: ptr<Circle>;
+struct GameState {
+    player1: Paddle;
+    player2: Paddle;
+    ball: Ball;
+    score1: u32;
+    score2: u32;
 }
 
-fn print_circle(nestedThing: StupidNestedTesting) {
-    printf("Circle with center at (%f, %f) and radius %f\n", nestedThing.circle->center.x, nestedThing.circle->center.y, nestedThing.circle->radius);
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...);
+
+fn draw_paddle(paddle: Paddle) {
+    draw_rectangle(paddle.x, paddle.y, paddle.width, paddle.height, 0xFFFFFFFFu32); // White color
 }
 
-@entry
+fn draw_game(state: ptr<GameState>) {
+    printf("Drawing game with pointer: %p\n", state);
+    draw_paddle(state->player1);
+    draw_paddle(state->player2);
+}
+
+@entry 
 fn main() -> u8 {
+    let game = GameState {
+        player1: Paddle { height: 100.0f, width: 20.0f, x: 50.0f, y: 250.0f, speed: 200.0f },
+        player2: Paddle { height: 100.0f, width: 20.0f, x: 730.0f, y: 250.0f, speed: 200.0f },
+        ball: Ball { x: 400.0f, y: 300.0f, radius: 10.0f, speed_x: 150.0f, speed_y: 150.0f },
+        score1: 0u32,
+        score2: 0u32,
+    };
 
-    for (let i = 0; i < 10; i++) {
-        printf("Loop iteration: %d\n", i);
+    init_window(800u32, 600u32, "Pong in Oxy");
+    
+    while (window_should_close() == 0u8) {
+        begin_drawing();
+        clear_background(0xFF000000u32); // Black background
+        
+        draw_game(addr(game));
+        
+        end_drawing();
     }
-
-    let j = 0; 
-    while (true) {
-        for (let i = 0; i < 5; i = i + 1) {
-            printf("Inner loop iteration: %d\n", i);
-        }
-
-        j++;
-        if (j >= 3) {
-            printf("Exiting outer loop after %d iterations\n", j);
-            break;
-        }
-
-        printf("Outer loop iteration: %d\n", j);
-    }
-
-    printf("Testing scanf. Please enter an integer: ");
-    let input: i32 = 0;
-    scanf("%d", addr(input));
-    printf("You entered: %d\n", input);
-
-    if (input > 10) {
-        printf("Input is greater than 10.\n");
-    } else if (input == 10) {
-        printf("Input is exactly 10.\n");
-    } else if (input == 0) {
-        printf("Input is zero.\n");
-    } else {
-        printf("Input is less than 10.\n");
-    }
-
+    
     return 0u8;
 }

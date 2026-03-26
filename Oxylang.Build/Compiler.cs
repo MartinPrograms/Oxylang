@@ -57,6 +57,13 @@ public class Compiler(string sourceFile, string outputFile, LogLevel logLevel)
         
         logger.Log(new Log(LogLevel.Debug, $"Parsed root: {root}", new SourceFile(_sourceFile, sourceCode), new SourceLocation(1, 1)));
 
+        var attributeAnalyzer = new AttributeAnalyzer(logger, new SourceFile(_sourceFile, sourceCode));
+        var attributeAnalysisResult = attributeAnalyzer.Transform(root);
+        if (!attributeAnalysisResult.IsSuccess)
+        {
+            return 1; // Failure
+        }
+
         var analyzer = new TypeAnalyzer(logger, new SourceFile(_sourceFile, sourceCode));
         var analysisResult = analyzer.Transform(root);
         if (!analysisResult.Success)

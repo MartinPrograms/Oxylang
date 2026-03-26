@@ -132,6 +132,18 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
     
     private Expression? ParseAtom()
     {
+        if (MatchSyntax(Language.Syntax.LeftParen) != null)
+        {
+            var expression = ParseExpression();
+            if (expression == null) return null;
+            if (MatchSyntax(Language.Syntax.RightParen) == null)
+            {
+                Logger.LogError("Expected ')' after expression", SourceFile, CurrentLocation);
+                return null;
+            }
+            return expression;
+        }
+        
         if (MatchKeyword(Language.Keyword.True) != null)
         {
             return new LiteralExpression(CurrentLocation, 1, new PrimaryType(CurrentLocation, PrimaryType.PrimaryTypeKind.U8));
@@ -318,7 +330,12 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                     genericArgs.Add(argType);
                 } while (MatchSyntax(Language.Syntax.Comma) != null);
 
-                if (!madeMistake && CloseGeneric() == null) return null;
+                if (!madeMistake && CloseGeneric() == null)
+                {
+                    _currentIndex = indexBackup;
+                    madeMistake = true;
+                    genericArgs.Clear();
+                }
             }
 
             // If the next token is a left parenthesis, this is a function call
@@ -523,7 +540,6 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                 return new TokenValueOperator(Language.Operator.GreaterThan, CurrentLocation);
             }
 
-            Logger.LogError("Expected '>' to close generic type", SourceFile, CurrentLocation);
             return null;
         }
 

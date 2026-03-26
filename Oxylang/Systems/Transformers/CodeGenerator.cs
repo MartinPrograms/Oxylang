@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using Oxylang.Systems.Parsing;
 using Oxylang.Systems.Parsing.Nodes;
@@ -708,15 +709,28 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                     return null;
                 }
 
+                var literalNode = null as QbeLiteral;
+                
                 if (qbeType.PrimitiveEnum.IsInteger())
                 {
-                    return new QbeLiteral(qbeType, (long)literal.IntegerValue);
+                    literalNode = new QbeLiteral(qbeType, (long)literal.IntegerValue);
                 }
                 
                 if (qbeType.PrimitiveEnum.IsFloat())
                 {
-                    return new QbeLiteral(qbeType, literal.FloatValue);
+                    literalNode = new QbeLiteral(qbeType, literal.FloatValue);
                 }
+                
+                if (literalNode == null)
+                {
+                    _logger.LogError("Unsupported literal type: " + literal.Type.GetString(0), _sourceFile, literal.Type.Location);
+                    return null;
+                }
+                
+                var copiedNode = _blocks.Peek().Copy(literalNode);
+                copiedNode.PrimitiveEnum = GetQbeType(literal.Type, true) as QbePrimitive ?? qbeType;
+                if (EnsureTypeSize(literal.Type, ref copiedNode)) return null;
+                return copiedNode;
             }
             else
             {
@@ -747,6 +761,8 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                         return value.qbe with { PrimitiveEnum = QbePrimitive.Pointer() };
                     
                     var loaded = _blocks.Peek().Load(value.qbe.PrimitiveEnum, value.qbe);
+                    if (EnsureTypeSize(value.type, ref loaded)) return null;
+                    
                     return loaded;
                 }
             }
@@ -876,7 +892,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             if (isLValue)
                 return fieldPtr;
 
-            var fieldQbeType = GetQbeType(field.Type) as QbePrimitive;
+            var fieldQbeType = GetQbeType(field.Type);
             if (fieldQbeType == null)
             {
                 _logger.LogError("Unsupported field type in member access: " + field.Type?.GetString(0), _sourceFile,
@@ -884,7 +900,11 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return null;
             }
 
-            return _blocks.Peek().Load(fieldQbeType, fieldPtr);
+            var loaded = _blocks.Peek().Load(fieldQbeType, fieldPtr);
+            if (fieldQbeType is QbePrimitive)
+                if (EnsureTypeSize(field.Type, ref loaded)) return null;
+            
+            return loaded;
         }
 
         if (expression is DereferenceExpression dereferenceExpr)
@@ -915,7 +935,9 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                     return null;
                 }
                 
-                return _blocks.Peek().Load(pointeeType, target);
+                var loaded = _blocks.Peek().Load(pointeeType, target);
+                if (EnsureTypeSize(pointerType.BaseType, ref loaded)) return null;
+                return loaded;
             }
         }
         
@@ -947,13 +969,81 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return null;
             }
 
-            return _blocks.Peek().Call(function.qbe.Identifier, function.qbe.ReturnType, function.qbe.Arguments.Count, args!);
+            var called = _blocks.Peek().Call(function.qbe.Identifier, function.qbe.ReturnType, function.qbe.Arguments.Count, args!);
+            if (called != null)
+            {
+                if (function.type.ReturnType is PrimaryType)
+                {
+                    called.PrimitiveEnum = GetQbeType(function.type.ReturnType, true) as QbePrimitive;
+                    if (EnsureTypeSize(function.type.ReturnType, ref called)) return null;
+                }
+            }
+
+            return called;
+        }
+
+        if (expression is CastExpression castExpr)
+        {
+            var value = VisitExpression(castExpr.Expression);
+            if (value == null)
+            {
+                _logger.LogError("Invalid cast expression.", _sourceFile, castExpr.Expression.Location);
+                return null;
+            }
+
+            var targetType = GetQbeType(castExpr.TargetType) as QbePrimitive;
+            if (targetType == null)
+            {
+                _logger.LogError("Unsupported cast target type: " + castExpr.TargetType.GetString(0), _sourceFile,
+                    castExpr.TargetType.Location);
+                return null;
+            }
+
+            return _blocks.Peek().Convert(value, targetType); // Convert from the value's type to the target type.
         }
 
         _logger.LogError("Unsupported expression type: " + expression.GetString(0), _sourceFile, expression.Location);
         return null;
     }
+
+    private bool EnsureTypeSize(TypeNode type, ref QbeLocalRef loaded)
+    {
+        loaded = EnsureTypeSize(type, loaded) as QbeLocalRef;
+        return loaded == null;
+    }
     
+    private bool EnsureTypeSize(TypeNode type, ref QbeValue value)
+    {
+        var ensured = EnsureTypeSize(type, value);
+        if (ensured == null) return true;
+        value = ensured;
+        return false;
+    }
+
+    private QbeValue? EnsureTypeSize(TypeNode type, QbeValue value)
+    {
+        if (type is PrimaryType primaryType)
+        {
+            var kind = primaryType.Kind;
+            if (kind == PrimaryType.PrimaryTypeKind.I8 || kind == PrimaryType.PrimaryTypeKind.U8 ||
+                kind == PrimaryType.PrimaryTypeKind.I16 || kind == PrimaryType.PrimaryTypeKind.U16)
+            {
+                // Qbe does not support these values natively, so instead we have to extend them to i32/u32 and then truncate them back when necessary.
+                var qbeType = GetQbeType(primaryType) as QbePrimitive;
+                if (qbeType == null)
+                {
+                    _logger.LogError("Unsupported type: " + type.GetString(0), _sourceFile,
+                        type.Location);
+                    return null;
+                }
+
+                return _blocks.Peek().Convert(value, qbeType) as QbeLocalRef;
+            }
+        }
+
+        return value;
+    }
+
     private string MangleName(string name, Node node)
     {
         return $"_oxy{name}_{node.Location.Line}_{node.Location.Column}";

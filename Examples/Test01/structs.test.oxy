@@ -1,0 +1,60 @@
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
+@extern @symbol("scanf") fn scanf(format: ptr<u8>, ...) -> i32;
+
+struct Point {
+    x: f64;
+    y: f64;
+}
+
+struct Circle {
+    center: Point;
+    radius: f64;
+}
+
+struct StupidNestedTesting {
+    circle: ptr<Circle>;
+}
+
+fn print_circle(nestedThing: StupidNestedTesting) {
+    printf("Circle with center at (%f, %f) and radius %f\n", nestedThing.circle->center.x, nestedThing.circle->center.y, nestedThing.circle->radius);
+}
+
+@entry
+fn main() -> u8 {
+
+    for (let i = 0; i < 10; i++) {
+        printf("Loop iteration: %d\n", i);
+    }
+
+    let j = 0; 
+    while (true) {
+        for (let i = 0; i < 5; i = i + 1) {
+            printf("Inner loop iteration: %d\n", i);
+        }
+
+        j++;
+        if (j >= 3) {
+            printf("Exiting outer loop after %d iterations\n", j);
+            break;
+        }
+
+        printf("Outer loop iteration: %d\n", j);
+    }
+
+    printf("Testing scanf. Please enter an integer: ");
+    let input: i32 = 0;
+    scanf("%d", addr(input));
+    printf("You entered: %d\n", input);
+
+    if (input > 10) {
+        printf("Input is greater than 10.\n");
+    } else if (input == 10) {
+        printf("Input is exactly 10.\n");
+    } else if (input == 0) {
+        printf("Input is zero.\n");
+    } else {
+        printf("Input is less than 10.\n");
+    }
+
+    return 0u8;
+}

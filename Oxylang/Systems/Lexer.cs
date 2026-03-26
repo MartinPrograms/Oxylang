@@ -231,6 +231,36 @@ public class Lexer : ICompilerSystem<IReadOnlyList<Token>>
                 suffix += Advance();
             }
         }
+
+        if (isBinary)
+        {
+            // Convert the lexeme to a decimal number for easier parsing later on, but keep the original lexeme for error messages and such
+            try
+            {
+                lexeme = Convert.ToInt64(lexeme.Substring(2), 2).ToString();
+            }
+            catch (Exception)
+            {
+                _logger.Log(new Log(LogLevel.Error, $"Invalid binary literal '{lexeme}'",
+                    new SourceFile(_fileName, _sourceCode), new SourceLocation(startLine, startColumn)));
+                lexeme = "0"; // Set to 0 to continue lexing
+            }
+        }
+        
+        if (isHex)
+        {
+            // Convert the lexeme to a decimal number for easier parsing later on, but keep the original lexeme for error messages and such
+            try
+            {
+                lexeme = Convert.ToInt64(lexeme.Substring(2), 16).ToString();
+            }
+            catch (Exception)
+            {
+                _logger.Log(new Log(LogLevel.Error, $"Invalid hexadecimal literal '{lexeme}'",
+                    new SourceFile(_fileName, _sourceCode), new SourceLocation(startLine, startColumn)));
+                lexeme = "0"; // Set to 0 to continue lexing
+            }
+        }
         
         return new Token(Language.TokenType.Number, new TokenValueNumber(lexeme, suffix, new SourceLocation(startLine, startColumn)));
     }

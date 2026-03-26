@@ -984,7 +984,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
             Error($"Could not resolve type of condition in while statement.", node.Condition.Location);
         }
 
-        conditionType!.Accept(this);
+        conditionType?.Accept(this);
         Visit(node.Body);
     }
 
