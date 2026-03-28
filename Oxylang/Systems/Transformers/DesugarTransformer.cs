@@ -167,6 +167,11 @@ public class DesugarTransformer : IAstTransformer
         return node;
     }
 
+    public Node Visit(UnaryExpression node)
+    {
+        return node;
+    }
+
     public Node Visit(IfStatement node)
     {
         return node;

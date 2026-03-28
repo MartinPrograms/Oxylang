@@ -82,6 +82,11 @@ public class Compiler(string sourceFile, string outputFile, LogLevel logLevel)
         File.WriteAllText(_outputFile, codegenResult.Code);
         logger.Log(new Log(LogLevel.Info, $"Successfully compiled {_sourceFile} to {_outputFile} in {sw.ElapsedMilliseconds}ms", new SourceFile(_sourceFile, sourceCode), new SourceLocation(1, 1)));
 
+        var types = codegen.Module.Types;
+        foreach (var t in types)
+            logger.Log(new Log(LogLevel.Debug, $"Generated type: {t.GetVisualRepresentation(false)}", new SourceFile(_sourceFile, sourceCode),
+                new SourceLocation(1, 1)));
+        
         return 0; // Success
     }
 }

@@ -195,6 +195,11 @@ public class AttributeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITrans
         
     }
 
+    public void Visit(UnaryExpression node)
+    {
+        
+    }
+
     public void Visit(IfStatement node)
     {
         

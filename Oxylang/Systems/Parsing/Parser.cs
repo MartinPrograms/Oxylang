@@ -48,7 +48,7 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
         return new VariableDeclaration(identifier.Value, type, [], initializer, identifier.Location);
     }
 
-    public Expression? ParseExpression(float precedence = 0)
+    public Expression? ParseExpression(float minPrecedence = Language.LowestPrecedence)
     {
         var left = ParsePrimary();
         if (left == null) return null;
@@ -56,39 +56,70 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
         while (true)
         {
             var opToken = Peek();
-            
-            if (opToken.Lexeme is TokenValueOperator operatorToken &&
-                Language.OperatorPrecedence.TryGetValue(operatorToken.Value, out var opPrecedence) && opPrecedence >= precedence)
-            {
-                Advance();
-
-                if (operatorToken.Value == Language.Operator.Equals)
-                {
-                    var rightValue = ParseExpression(Language.HighestPrecedence);
-                    if (rightValue == null) return null;
-                    
-                    if (left is not LeftValue leftValue)
-                    {
-                        Logger.LogError("Left-hand side of assignment must be a left-value", SourceFile, CurrentLocation);
-                        return null;
-                    }
-
-                    left = new AssignmentExpression(CurrentLocation, leftValue, rightValue);
-                    continue;
-                }
-                
-                var right = ParseExpression(opPrecedence + 1);
-                if (right == null) return null;
-                
-                left = new BinaryExpression(CurrentLocation, left, operatorToken.Value, right);
-            }
-            else
-            {
+            if (opToken.Lexeme is not TokenValueOperator operatorLexeme)
                 break;
-            }
+
+            var op = operatorLexeme.Value;
+
+            if (!Language.OperatorPrecedence.TryGetValue(op, out var prec))
+                break;
+
+            if (op is Language.Operator.Dot or Language.Operator.Arrow
+                or Language.Operator.Increment or Language.Operator.Decrement)
+                break;
+
+            if (prec > minPrecedence)
+                break;
+
+            Advance();
+
+            var isLeftAssoc = Language.OperatorAssociativity.GetValueOrDefault(op, true);
+            var right = ParseExpression(isLeftAssoc ? prec - 1 : prec);
+            if (right == null) return null;
+            
+            left = BuildBinaryExpression(left, op, right);
         }
-        
+
         return left;
+    }
+
+    private Expression BuildBinaryExpression(Expression left, Language.Operator op, Expression right)
+    {
+        // Region: Compound assignment desugaring
+        Language.Operator? desugaredOp = op switch
+        {
+            Language.Operator.PlusEquals     => Language.Operator.Plus,
+            Language.Operator.MinusEquals    => Language.Operator.Minus,
+            Language.Operator.AsteriskEquals => Language.Operator.Asterisk,
+            Language.Operator.SlashEquals    => Language.Operator.Slash,
+            Language.Operator.PercentEquals  => Language.Operator.Percent,
+            _                                => null
+        };
+
+        if (desugaredOp.HasValue)
+        {
+            if (left is not LeftValue leftValue)
+            {
+                Logger.LogError($"Left-hand side of compound assignment must be a left-value", SourceFile, CurrentLocation);
+                return new BinaryExpression(CurrentLocation, left, op, right);
+            }
+            
+            return new AssignmentExpression(CurrentLocation, leftValue,
+                new BinaryExpression(CurrentLocation, left, desugaredOp.Value, right));
+        }
+
+        if (op == Language.Operator.Equals)
+        {
+            if (left is not LeftValue leftValue)
+            {
+                Logger.LogError($"Left-hand side of assignment must be a left-value", SourceFile, CurrentLocation);
+                return new BinaryExpression(CurrentLocation, left, op, right);
+            }
+            
+            return new AssignmentExpression(CurrentLocation, leftValue, right);
+        }
+
+        return new BinaryExpression(CurrentLocation, left, op, right);
     }
 
     private Expression? ParsePrimary()
@@ -120,6 +151,7 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
             {
                 Advance();
                 atom = new PostfixExpression(CurrentLocation, atom, incDecToken.Value);
+                continue;
             }
             else
             {
@@ -142,6 +174,34 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                 return null;
             }
             return expression;
+        }
+     
+        if (MatchOperator(Language.Operator.Minus) != null)
+        {
+            var expression = ParseExpression(Language.OperatorPrecedence[Language.Operator.Minus]);
+            if (expression == null) return null;
+            return new UnaryExpression(CurrentLocation, Language.Operator.Minus, expression);
+        }
+        
+        if (MatchOperator(Language.Operator.Plus) != null)
+        {
+            var expression = ParseExpression(Language.OperatorPrecedence[Language.Operator.Plus]);
+            if (expression == null) return null;
+            return new UnaryExpression(CurrentLocation, Language.Operator.Plus, expression);
+        }
+        
+        if (MatchOperator(Language.Operator.BitwiseNot) != null)
+        {
+            var expression = ParseExpression(Language.OperatorPrecedence[Language.Operator.BitwiseNot]);
+            if (expression == null) return null;
+            return new UnaryExpression(CurrentLocation, Language.Operator.BitwiseNot, expression);
+        }
+        
+        if (MatchOperator(Language.Operator.Not) != null)
+        {
+            var expression = ParseExpression(Language.OperatorPrecedence[Language.Operator.Not]);
+            if (expression == null) return null;
+            return new UnaryExpression(CurrentLocation, Language.Operator.Not, expression);
         }
         
         if (MatchKeyword(Language.Keyword.True) != null)

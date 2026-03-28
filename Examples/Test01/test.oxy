@@ -1,13 +1,42 @@
 @extern @symbol("InitWindow") fn init_window(width: u32, height: u32, title: ptr<u8>);
+@extern @symbol("SetTargetFPS") fn set_target_fps(fps: u32);
 @extern @symbol("WindowShouldClose") fn window_should_close() -> u8;
 @extern @symbol("BeginDrawing") fn begin_drawing();
 @extern @symbol("EndDrawing") fn end_drawing();
 @extern @symbol("ClearBackground") fn clear_background(color: u32);
 @extern @symbol("DrawText") fn draw_text(text: ptr<u8>, x: i32, y: i32, font_size: i32, color: u32);
-@extern @symbol("DrawCircle") fn draw_circle(x: f32, y: f32, radius: f32, color: u32);
-@extern @symbol("DrawRectangle") fn draw_rectangle(x: f32, y: f32, width: f32, height: f32, color: u32);
+@extern @symbol("DrawCircle") fn draw_circle(x: i32, y: i32, radius: f32, color: u32);
+@extern @symbol("DrawRectangle") fn draw_rectangle(x: i32, y: i32, width: i32, height: i32, color: u32);
 @extern @symbol("IsKeyDown") fn is_key_down(key: u32) -> u8;
 @extern @symbol("GetFrameTime") fn get_frame_time() -> f32;
+@extern @symbol("SetConfigFlags") fn set_config_flags(flags: u32);
+@extern @symbol("calloc") fn alloc(n: u64, size: u64) -> ptr<u8>;
+@extern @symbol("sprintf") fn sprintf(buffer: ptr<u8>, format: ptr<u8>, ...);
+@extern @symbol("rand") fn rand() -> u32;
+@extern @symbol("srand") fn srand(seed: u32);
+@extern @symbol("time") fn time(something: ptr<u32>) -> u32;
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...);
+
+let WHITE: u32 = 0xFFFFFFFFu32;
+let BLACK: u32 = 0xFF000000u32;
+let GREY: u32 = 0xFF888888u32;
+let RED: u32 = 0xFFFF0000u32;
+let GREEN: u32 = 0xFF00FF00u32;
+let BLUE: u32 = 0xFF0000FFu32;
+
+let KEY_W: u32 = 87u32;
+let KEY_S: u32 = 83u32;
+let KEY_UP: u32 = 265u32;
+let KEY_DOWN: u32 = 264u32;
+
+let BALL_SPEED: f32 = 150.0f;
+
+struct Rectangle {
+    x: f32;
+    y: f32;
+    width: f32;
+    height: f32;
+}
 
 struct Paddle {
     height: f32;
@@ -33,35 +62,160 @@ struct GameState {
     score2: u32;
 }
 
-@extern @symbol("printf") fn printf(format: ptr<u8>, ...);
-
 fn draw_paddle(paddle: Paddle) {
-    draw_rectangle(paddle.x, paddle.y, paddle.width, paddle.height, 0xFFFFFFFFu32); // White color
+    draw_rectangle(cast<i32>(paddle.x), cast<i32>(paddle.y), cast<i32>(paddle.width), cast<i32>(paddle.height), WHITE);
+}
+
+let text_buffer: ptr<u8> = null;
+
+fn draw_score(state: ptr<GameState>) {
+    let fmt = "Score: %u";
+    sprintf(text_buffer, fmt, state->score1);
+    draw_text(text_buffer, 200, 20, 20, WHITE);
+    
+    sprintf(text_buffer, fmt, state->score2);
+    draw_text(text_buffer, 600, 20, 20, WHITE);
 }
 
 fn draw_game(state: ptr<GameState>) {
-    printf("Drawing game with pointer: %p\n", state);
     draw_paddle(state->player1);
     draw_paddle(state->player2);
+    draw_score(state);
+    draw_circle(cast<i32>(state->ball.x), cast<i32>(state->ball.y), state->ball.radius, WHITE);
+}
+
+fn draw_center_line() {
+    for (let y = 0; y < 600; y += 30) {
+        draw_rectangle(395, y, 5, 20, GREY);
+    }
+}
+
+fn move_paddle(paddle: ptr<Paddle>, key_up: u32, key_down: u32, delta_time: f32) {
+    if (is_key_down(key_up) != 0u8) {
+        paddle->y -= paddle->speed * delta_time;
+    }
+    if (is_key_down(key_down) != 0u8) {
+        paddle->y += paddle->speed * delta_time;
+    }
+    
+    if (paddle->y < 0.0f) {
+        paddle->y = 0.0f;
+    }
+    
+    if (paddle->y + paddle->height > 600.0f) {
+        paddle->y = 600.0f - paddle->height;
+    }
+}
+
+fn reset_ball(state: ptr<GameState>) {
+    state->ball.x = 400.0f;
+    state->ball.y = 300.0f;
+    state->ball.speed_x = BALL_SPEED;
+    state->ball.speed_y = BALL_SPEED;
+}
+
+fn check_collision(rect1: Rectangle, rect2: Rectangle) -> u8 {
+    if (rect1.x < rect2.x + rect2.width &&
+        rect1.x + rect1.width > rect2.x &&
+        rect1.y < rect2.y + rect2.height &&
+        rect1.y + rect1.height > rect2.y) {
+        return 1u8;
+    }
+    
+    return 0u8;
+}
+
+fn move_ball(state: ptr<GameState>, delta_time: f32) {
+    state->ball.x += state->ball.speed_x * delta_time;
+    state->ball.y += state->ball.speed_y * delta_time;
+    
+    if (state->ball.y - state->ball.radius < 0.0f || state->ball.y + state->ball.radius > 600.0f) {
+        state->ball.speed_y = -state->ball.speed_y;
+    }
+    
+    let ball_rect = Rectangle { 
+        x: state->ball.x - state->ball.radius, 
+        y: state->ball.y - state->ball.radius, 
+        width: state->ball.radius * 2.0f, 
+        height: state->ball.radius * 2.0f 
+    };
+    
+    let paddle1_rect = Rectangle { 
+        x: state->player1.x, 
+        y: state->player1.y, 
+        width: state->player1.width, 
+        height: state->player1.height 
+    };
+    
+    let paddle2_rect = Rectangle { 
+        x: state->player2.x, 
+        y: state->player2.y, 
+        width: state->player2.width, 
+        height: state->player2.height 
+    };
+    
+    if (check_collision(ball_rect, paddle1_rect) != 0u8) {
+        if (state->ball.speed_x < 0.0f){
+            state->ball.speed_x = -state->ball.speed_x;
+        }
+        state->ball.speed_x *= 1.1f; // Increase speed after each hit
+        state->ball.speed_y *= 1.1f;
+    }
+    
+    if (check_collision(ball_rect, paddle2_rect) != 0u8) {
+        if (state->ball.speed_x > 0.0f){
+            state->ball.speed_x = -state->ball.speed_x;
+        }
+        state->ball.speed_x *= 1.1f; // Increase speed after each hit
+        state->ball.speed_y *= 1.1f;
+    }
+    
+    if (state->ball.x < 0.0f){
+        state->score2 += 1u32;
+        reset_ball(state);
+    }
+    
+    if (state->ball.x > 800.0f) {
+        state->score1 += 1u32;
+        reset_ball(state);
+    }
+}
+
+fn update_game(state: ptr<GameState>, delta_time: f32) {
+    move_paddle(addr(state->player1), KEY_W, KEY_S, delta_time);
+    move_paddle(addr(state->player2), KEY_UP, KEY_DOWN, delta_time);
+    move_ball(state, delta_time);
 }
 
 @entry 
 fn main() -> u8 {
+    srand(time(null));
+    
+    text_buffer = alloc(256, 1);
+
     let game = GameState {
         player1: Paddle { height: 100.0f, width: 20.0f, x: 50.0f, y: 250.0f, speed: 200.0f },
         player2: Paddle { height: 100.0f, width: 20.0f, x: 730.0f, y: 250.0f, speed: 200.0f },
-        ball: Ball { x: 400.0f, y: 300.0f, radius: 10.0f, speed_x: 150.0f, speed_y: 150.0f },
-        score1: 0u32,
-        score2: 0u32,
+        ball: Ball { x: 400.0f, y: 300.0f, radius: 10.0f, speed_x: BALL_SPEED, speed_y: BALL_SPEED },
+        score1: 10u32,
+        score2: 10u32,
     };
 
+    
+    set_target_fps(60u32);
+    set_config_flags(0x00000020u32); // MSAA 4X
+    
     init_window(800u32, 600u32, "Pong in Oxy");
     
-    while (window_should_close() == 0u8) {
+    while (!window_should_close()) {
         begin_drawing();
-        clear_background(0xFF000000u32); // Black background
+        
+        update_game(addr(game), get_frame_time());
+        
+        clear_background(BLACK);
         
         draw_game(addr(game));
+        draw_center_line();
         
         end_drawing();
     }

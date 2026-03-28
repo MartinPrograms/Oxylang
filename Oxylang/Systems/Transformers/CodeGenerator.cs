@@ -12,8 +12,9 @@ public record CodeGeneratorResult(string Code, bool Success);
 public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bit) : ITransformer<CodeGeneratorResult>
 {
     private QbeModule _module;
+    public QbeModule Module => _module;
 
-    private Dictionary<string, (QbeType qbe, StructType type)> _structs = new ();
+    private Dictionary<string, (QbeAggregateType qbe, StructType type)> _structs = new ();
     private Dictionary<string, (QbeFunction qbe, FunctionType type)> _functions = new ();
     private Dictionary<string, QbeValue> _strings = new ();
 
@@ -37,6 +38,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
     public void Visit(Root node)
     {
+        _scopes.Push(new());
         AddLibcFunctions();
         
         foreach (var import in node.Imports)
@@ -139,7 +141,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             return;
         }
         
-        if (left.PrimitiveEnum is QbePrimitive and not { PrimitiveEnum: QbePrimitiveEnum.Pointer })
+        if (left.PrimitiveEnum is QbePrimitive)
         {
             _blocks.Peek().Store(left, value);
         }
@@ -185,8 +187,9 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             _logger.LogError("Undefined function: " + identifier, _sourceFile, node.Location);
             return;
         }
-        
-        _blocks.Peek().Call(function.qbe.Identifier, function.qbe.ReturnType, function.qbe.Arguments.Count, node.Arguments.Select(x => VisitExpression(x)).ToArray());
+
+        _blocks.Peek().Call(function.qbe.Identifier, function.qbe.ReturnType, function.qbe.Arguments.Count,
+            GetFunctionCallArguments(node.Arguments));
     }
 
     public void Visit(FunctionDefinition node)
@@ -265,14 +268,23 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             var param = function.Parameters[i];
             var qbeParam = _functions[function.Name].qbe.Arguments[i];
 
-            if (param.Type is not PrimaryType primaryType)
+            if (param.Type is not StructType && param.Type is not NamedType && param.Type is not PointerType)
             {
-                _scopes.Peek()[param.Name] = (new QbeLocalRef(qbeParam.Primitive, qbeParam.Identifier), param.Type!);
+                _scopes.Peek()[param.Name] = (_blocks.Peek().Allocate(qbeParam.Primitive, !_is64Bit), param.Type);
+                _blocks.Peek().Store(_scopes.Peek()[param.Name].qbe,
+                    new QbeLocalRef(qbeParam.Primitive, qbeParam.Identifier));
+            }
+            else if (param.Type is PointerType)
+            {
+                // For pointer types, we can pass them directly since they're already references.
+                _scopes.Peek()[param.Name] = (new QbeLocalRef(qbeParam.Primitive, qbeParam.Identifier), param.Type);
             }
             else
             {
-                var copy = block.Copy(new QbeLocalRef(qbeParam.Primitive, qbeParam.Identifier));
-                _scopes.Peek()[param.Name] = (copy, param.Type!);
+                // Allocate enough space for the struct on the stack, then use memcpy to copy the parameter from the argument to the local.
+                var allocated = _blocks.Peek().Allocate(qbeParam.Primitive, !_is64Bit);
+                MemCopy(allocated, new QbeLocalRef(qbeParam.Primitive, qbeParam.Identifier), qbeParam.Primitive.ByteSize(!_is64Bit));
+                _scopes.Peek()[param.Name] = (allocated, param.Type);
             }
         }
         
@@ -372,27 +384,78 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             _logger.LogError("Variable type cannot be inferred without an initializer.", _sourceFile, node.Location);
             return;
         }
-        
+
         QbeValue? inferredValue = null;
         if (varType == null)
         {
             inferredValue = VisitExpression(node.Initializer!);
             varType = inferredValue?.PrimitiveEnum;
         }
-        var value = inferredValue ?? (node.Initializer != null ? VisitExpression(node.Initializer) : null);
-        var local = _blocks.Peek().Allocate(varType, !_is64Bit);
-        _scopes.Peek()[node.Name] = (local, (node.Type ?? GetNodeType(node.Initializer!))!);
 
-        // Store the initializer value if it exists, otherwise call memcpy
-        if (value != null)
+        if (_currentFunction == null)
         {
-            if (value.PrimitiveEnum is QbePrimitive and not { PrimitiveEnum: QbePrimitiveEnum.Pointer })
+            if (node.Initializer != null && node.Initializer is not LiteralExpression)
             {
-                _blocks.Peek().Store(local, value);
+                _logger.LogError("Global variable initializers must be literals.", _sourceFile, node.Initializer.Location);
+                return;
+            }
+
+            QbeGlobalRef global = null; 
+            if (node.Initializer != null)
+            {
+                var literal = (LiteralExpression)node.Initializer!;
+
+                if (literal.Type is PrimaryType primaryType)
+                {
+                    if (primaryType.Kind == PrimaryType.PrimaryTypeKind.F32 || primaryType.Kind == PrimaryType.PrimaryTypeKind.F64)
+                        global = _module.AddGlobal(varType!, (double)literal.FloatValue);
+                    else 
+                        global = _module.AddGlobal(varType!, (long)literal.IntegerValue);
+                }
+                else if (literal.Type is PointerType pointerType)
+                {
+                    global = _module.AddGlobal(varType!, literal.IntegerValue);
+                }
+                else
+                {
+                    _logger.LogError("Unsupported global variable initializer type: " + literal.Type.GetString(0),
+                        _sourceFile, literal.Type.Location);
+                    return;
+                }
             }
             else
             {
-                MemCopy(local, value, varType.ByteSize(!_is64Bit));
+                global = _module.AddGlobal(varType!, 0);
+            }
+            
+            _scopes.Peek()[node.Name] = (global, node.Type ?? GetNodeType(node.Initializer!)!);
+        }
+        else
+        {
+            var value = inferredValue ?? (node.Initializer != null ? VisitExpression(node.Initializer) : null);
+
+            if (value is QbeGlobalRef globalRef)
+            {
+                // For global variables, we can just use the global reference directly, since it's already a pointer.
+                _scopes.Peek()[node.Name] = (globalRef, node.Type ?? GetNodeType(node.Initializer!)!);
+            }
+            else
+            {
+                var local = _blocks.Peek().Allocate(varType, !_is64Bit);
+                _scopes.Peek()[node.Name] = (local, (node.Type ?? GetNodeType(node.Initializer!))!);
+
+                // Store the initializer value if it exists, otherwise call memcpy
+                if (value != null)
+                {
+                    if (value.PrimitiveEnum is QbePrimitive)
+                    {
+                        _blocks.Peek().Store(local, value);
+                    }
+                    else
+                    {
+                        MemCopy(local, value, varType.ByteSize(!_is64Bit));
+                    }
+                }
             }
         }
     }
@@ -420,6 +483,11 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
     }
 
     public void Visit(MemberAccessExpression node)
+    {
+        
+    }
+
+    public void Visit(UnaryExpression node)
     {
         
     }
@@ -627,6 +695,11 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             return literalExpr.Type;
         }
         
+        if (node is StringExpression stringExpr)
+        {
+            return new PointerType(stringExpr.Location, new PrimaryType(stringExpr.Location, PrimaryType.PrimaryTypeKind.U8));
+        }
+        
         if (node is VariableExpression variableExpr)
         {
             foreach (var scope in _scopes.Reverse())
@@ -684,12 +757,37 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             }
         }
         
+        if (node is AddressOfExpression addressOfExpr)
+        {
+            var targetType = GetNodeType(addressOfExpr.Expression);
+            if (targetType != null)
+            {
+                return new PointerType(addressOfExpr.Location, targetType);
+            }
+        }
+        
         if (node is FunctionCallExpression functionCallExpr)
         {
             if (_functions.TryGetValue(functionCallExpr.Identifier, out var function))
             {
                 return function.type.ReturnType;
             }
+        }
+        
+        if (node is BinaryExpression binaryExpr)
+        {
+            var leftType = GetNodeType(binaryExpr.Left);
+            return leftType;
+        }
+        
+        if (node is CastExpression castExpr)
+        {
+            return GetNodeType(castExpr.TargetType);
+        }
+        
+        if (node is TypeNode typeNode)
+        {
+            return typeNode;
         }
         
         _logger.LogError("Unable to determine type of node: " + node.GetString(0), _sourceFile, node.Location);
@@ -732,6 +830,21 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 if (EnsureTypeSize(literal.Type, ref copiedNode)) return null;
                 return copiedNode;
             }
+            else if (literal.Type is PointerType pointerType)
+            {
+                var qbeType = GetQbeType(literal.Type) as QbePrimitive;
+                if (qbeType == null)
+                {
+                    _logger.LogError("Unsupported literal type: " + literal.Type.GetString(0), _sourceFile, literal.Type.Location);
+                    return null;
+                }
+
+                var literalNode = new QbeLiteral(qbeType, (long)literal.IntegerValue);
+                var copiedNode = _blocks.Peek().Copy(literalNode);
+                copiedNode.PrimitiveEnum = GetQbeType(literal.Type, true) as QbePrimitive ?? qbeType;
+                if (EnsureTypeSize(literal.Type, ref copiedNode)) return null;
+                return copiedNode;
+            }
             else
             {
                 _logger.LogError("Unsupported literal type: " + literal.Type.GetString(0), _sourceFile,
@@ -746,8 +859,35 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return _strings[stringExpr.Value];
 
             var global = _module.AddGlobal(stringExpr.Value);
-                _strings[stringExpr.Value] = global;
-                return global;
+            _strings[stringExpr.Value] = global;
+            return global;
+        }
+
+        if (expression is UnaryExpression unaryExpr)
+        {
+            var operand = VisitExpression(unaryExpr.Operand);
+            if (operand == null)
+            {
+                _logger.LogError("Invalid unary expression.", _sourceFile, unaryExpr.Location);
+                return null;
+            }
+
+            var result = unaryExpr.Operator switch
+            {
+                Language.Operator.Plus => operand,
+                Language.Operator.Minus => _blocks.Peek().Sub(new QbeLiteral(operand.PrimitiveEnum, 0), operand),
+                Language.Operator.BitwiseNot => _blocks.Peek().Not(operand),
+                Language.Operator.Not => CreateNot(operand),
+                _ => null
+            };
+            
+            if (result == null)
+            {
+                _logger.LogError("Unsupported unary operator: " + unaryExpr.Operator, _sourceFile, unaryExpr.Location);
+                return null;
+            }
+            
+            return result;
         }
         
         if (expression is VariableExpression variableExpr)
@@ -755,8 +895,21 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             foreach (var scope in _scopes.Reverse())
             {
                 if (scope.TryGetValue(variableExpr.Name, out var value))
-                {
+                {                    
                     bool isStruct = value.type is NamedType or StructType;
+
+                    if (value.qbe is QbeGlobalRef globalRef)
+                    {
+                        if (isLValue || isStruct || _strings.ContainsValue(globalRef))
+                            return globalRef with { PrimitiveEnum = QbePrimitive.Pointer() };
+                        
+                        var loadedGlobal = _blocks.Peek().Load(GetQbeType(value.type), globalRef);
+                        if (EnsureTypeSize(value.type, ref loadedGlobal)) return null;
+                        return loadedGlobal;
+                    }
+
+                    isStruct = isStruct || value.type is PointerType;
+                    
                     if (isLValue || isStruct)
                         return value.qbe with { PrimitiveEnum = QbePrimitive.Pointer() };
                     
@@ -795,6 +948,10 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 Language.Operator.LessThan => _blocks.Peek().Equality(EqualityType.LessThan, left, right),
                 Language.Operator.GreaterThanOrEqual => _blocks.Peek().Equality(EqualityType.GreaterThanOrEqual, left, right),
                 Language.Operator.LessThanOrEqual => _blocks.Peek().Equality(EqualityType.LessThanOrEqual, left, right),
+                Language.Operator.BitwiseOr => _blocks.Peek().Or(left, right),
+                Language.Operator.BitwiseAnd => _blocks.Peek().And(left, right),
+                Language.Operator.Or => CreateOr(left, right),
+                Language.Operator.And => CreateAnd(left, right),
                 _ => null
             };
             
@@ -817,10 +974,17 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             }
             
             var local = _blocks.Peek().Allocate(structType.qbe, !_is64Bit);
-            for (int i = 0; i < structInitExpr.FieldInitializers.Count; i++)
+
+            foreach (var fieldInit in structInitExpr.FieldInitializers)
             {
-                var fieldInit = structInitExpr.FieldInitializers[i];
-                var fieldType = structType.type.Fields[i].Type;
+                var fieldInfo = structType.type.Fields.FirstOrDefault(x => x.Name == fieldInit.Item1);
+                if (fieldInfo == null)
+                {
+                    _logger.LogError("Undefined field in struct initializer: " + fieldInit.Item1, _sourceFile,
+                        fieldInit.Item2.Location);
+                    return null;
+                }
+
                 var fieldValue = VisitExpression(fieldInit.Item2);
                 if (fieldValue == null)
                 {
@@ -828,14 +992,15 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                         fieldInit.Item2.Location);
                     return null;
                 }
-
-                var fieldPtr = _blocks.Peek().GetFieldPtr(local, structType.qbe, i, !_is64Bit);
-                if (fieldType is PrimaryType || fieldType is PointerType)
+                
+                var fieldIndex = structType.type.Fields.Index().First(x => x.Item.Name == fieldInit.Item1).Item1;
+                var fieldPtr = _blocks.Peek().GetFieldPtr(local, structType.qbe, fieldIndex, !_is64Bit);
+                if (fieldInfo.Type is PrimaryType || fieldInfo.Type is PointerType)
                     _blocks.Peek().Store(fieldPtr, fieldValue);
                 else
                     MemCopy(fieldPtr, fieldValue, fieldValue.PrimitiveEnum.ByteSize(!_is64Bit));
             }
-            
+
             return local;
         }
 
@@ -889,7 +1054,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             var qbeStructType = _structs[resolvedStruct.Name].qbe;
             var fieldPtr = _blocks.Peek().GetFieldPtr(target, qbeStructType, fieldIndex, !_is64Bit);
 
-            if (isLValue)
+            if (isLValue || field.Type is NamedType or StructType)
                 return fieldPtr;
 
             var fieldQbeType = GetQbeType(field.Type);
@@ -949,8 +1114,10 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 _logger.LogError("Invalid address-of target.", _sourceFile, addressOfExpr.Expression.Location);
                 return null;
             }
-
-            return target;
+            
+            var pointer = _blocks.Peek().Allocate(QbePrimitive.Pointer(), !_is64Bit);
+            _blocks.Peek().Store(pointer, target);
+            return pointer;
         }
 
         if (expression is FunctionCallExpression functionCallExpr)
@@ -962,7 +1129,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return null;
             }
 
-            var args = functionCallExpr.Arguments.Select(x => VisitExpression(x)).ToArray();
+            var args = GetFunctionCallArguments(functionCallExpr.Arguments);
             if (args.Any(x => x == null))
             {
                 _logger.LogError("Invalid argument in function call.", _sourceFile, functionCallExpr.Location);
@@ -1004,6 +1171,46 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
         _logger.LogError("Unsupported expression type: " + expression.GetString(0), _sourceFile, expression.Location);
         return null;
+    }
+
+    private QbeValue CreateNot(QbeValue operand)
+    {
+        // operand == 0
+        return _blocks.Peek().Equality(EqualityType.Equal, operand, new QbeLiteral(QbePrimitive.Int32(false), 0));
+    }
+
+    private QbeValue CreateAnd(QbeValue left, QbeValue right)
+    {
+        // (left != 0) & (right != 0)
+        var leftCond = _blocks.Peek().Equality(EqualityType.Inequal, left, new QbeLiteral(QbePrimitive.Int32(false), 0));
+        var rightCond = _blocks.Peek().Equality(EqualityType.Inequal, right, new QbeLiteral(QbePrimitive.Int32(false), 0));
+        return _blocks.Peek().And(leftCond, rightCond);
+    }
+
+    private QbeValue CreateOr(QbeValue left, QbeValue right)
+    {
+        // (left != 0) | (right != 0)
+        var leftCond = _blocks.Peek().Equality(EqualityType.Inequal, left, new QbeLiteral(QbePrimitive.Int32(false), 0));
+        var rightCond = _blocks.Peek().Equality(EqualityType.Inequal, right, new QbeLiteral(QbePrimitive.Int32(false), 0));
+        return _blocks.Peek().Or(leftCond, rightCond);
+    }
+
+    private QbeValue[] GetFunctionCallArguments(List<Expression> arguments)
+    {
+        var args = new QbeValue[arguments.Count];
+        for (int i = 0; i < arguments.Count; i++)
+        {
+            // Check if the type is a struct or not, if it is we do not need to load it
+            var argValue = VisitExpression(arguments[i]);
+            if (argValue == null)
+            {
+                _logger.LogError("Invalid argument expression.", _sourceFile, arguments[i].Location);
+                return args;
+            }
+            args[i] = argValue;
+        }
+
+        return args;
     }
 
     private bool EnsureTypeSize(TypeNode type, ref QbeLocalRef loaded)

@@ -43,6 +43,8 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
 
     public void Visit(Root node)
     {
+        _scopeStack.Push(new Dictionary<string, TypeNode>()); // Global scope
+        
         foreach (var import in node.Imports)
         {
             Visit(import);
@@ -471,6 +473,18 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
             }
             return targetType;
         }
+
+        if (expression is UnaryExpression unaryExpression)
+        {
+            var operandType = ResolveType(unaryExpression.Operand);
+            if (operandType == null)
+            {
+                Error($"Could not resolve type of operand in unary expression.", unaryExpression.Operand.Location);
+                return null;
+            }
+            
+            return operandType;
+        }
         
         if (expression is BinaryExpression binaryExpression)
         {
@@ -829,6 +843,12 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
         
         if (explicitType is PointerType explicitPointer && initializerType is PointerType initializerPointer)
         {
+            if (explicitPointer.BaseType is VoidType || initializerPointer.BaseType is VoidType)
+            {
+                // Allow implicit conversion between pointers to void and pointers to other types, since this is a common pattern in C for things like dynamic memory allocation and generic data structures.
+                return true;
+            }
+            
             return AreTypesCompatible(explicitPointer.BaseType, initializerPointer.BaseType);
         }
 
@@ -939,6 +959,21 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
         }
         
         Error($"Cannot access member '{node.MemberName}' of non-struct type '{objectType.GetString(0)}'.", node.Location);
+    }
+
+    public void Visit(UnaryExpression node)
+    {
+        var operandType = ResolveType(node.Operand);
+        if (operandType == null)
+        {
+            Error($"Could not resolve type of operand in unary expression.", node.Operand.Location);
+            return;
+        }
+        
+        if (operandType is not PrimaryType or PointerType)
+        {
+            Error($"Unary operator '{node.Operator}' cannot be applied to type '{operandType.GetString(0)}'.", node.Location);
+        }
     }
 
     public void Visit(IfStatement node)
