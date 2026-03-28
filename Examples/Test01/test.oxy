@@ -197,10 +197,9 @@ fn main() -> u8 {
         player1: Paddle { height: 100.0f, width: 20.0f, x: 50.0f, y: 250.0f, speed: 200.0f },
         player2: Paddle { height: 100.0f, width: 20.0f, x: 730.0f, y: 250.0f, speed: 200.0f },
         ball: Ball { x: 400.0f, y: 300.0f, radius: 10.0f, speed_x: BALL_SPEED, speed_y: BALL_SPEED },
-        score1: 10u32,
-        score2: 10u32,
+        score1: 0u32,
+        score2: 0u32,
     };
-
     
     set_target_fps(60u32);
     set_config_flags(0x00000020u32); // MSAA 4X
