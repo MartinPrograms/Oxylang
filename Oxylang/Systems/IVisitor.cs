@@ -29,6 +29,7 @@ public interface IVisitor
     void Visit(DereferenceExpression node); // deref(x)
     void Visit(MemberAccessExpression node); // a.b or a->b
     void Visit(UnaryExpression node); // -a, !a, etc.
+    void Visit(MethodCallExpression node); // a.b(c, d, ...) (calls an imported method)
     
     // Conditionals
     void Visit(IfStatement node); // if (condition) { ... } else { ... }
@@ -64,6 +65,7 @@ public interface IAstTransformer
     Node Visit(DereferenceExpression node); // deref(x)
     Node Visit(MemberAccessExpression node); // a.b or a->b
     Node Visit(UnaryExpression node); // -a, !a, etc.
+    Node Visit(MethodCallExpression node); // a.b(c, d, ...) (calls an imported method)
     
     // Conditionals
     Node Visit(IfStatement node); // if (condition) { ... } else { ... }

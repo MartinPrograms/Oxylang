@@ -61,6 +61,15 @@ public class AttributeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITrans
                     $"Variable '{varDecl.Name}' cannot have 'entry', 'callconv', or 'symbol' attributes at {node.Location}");
             }
         }
+        
+        if (node is ImportStatement importStmt)
+        {
+            if (nodeAttributes.Any(a => a.Name != "public"))
+            {
+                Fail(
+                    $"Import statement cannot have attributes other than 'public' at {node.Location}");
+            }
+        }
     }
     
     private bool _success = true;
@@ -92,6 +101,11 @@ public class AttributeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITrans
         foreach (var globalVar in node.GlobalVariables)
         {
             globalVar.Accept(this);
+        }
+        
+        foreach (var import in node.Imports)
+        {
+            import.Accept(this);
         }
     }
 
@@ -132,7 +146,7 @@ public class AttributeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITrans
 
     public void Visit(ImportStatement node)
     {
-        
+        VerifyAttributes(node.Attributes, node);
     }
 
     public void Visit(LiteralExpression node)
@@ -196,6 +210,11 @@ public class AttributeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITrans
     }
 
     public void Visit(UnaryExpression node)
+    {
+        
+    }
+
+    public void Visit(MethodCallExpression node)
     {
         
     }

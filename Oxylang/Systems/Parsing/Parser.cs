@@ -143,9 +143,39 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                     return null;
                 }
 
-                atom = new MemberAccessExpression(CurrentLocation, atom, memberToken.Value, isPointerAccess: operatorToken.Value == Language.Operator.Arrow);
+                atom = new MemberAccessExpression(CurrentLocation, atom, memberToken.Value,
+                    isPointerAccess: operatorToken.Value == Language.Operator.Arrow);
                 continue;
             }
+
+            // Region: Method call on member access result
+            if (opToken.Lexeme is TokenValueSyntax syntaxToken && syntaxToken.Value == Language.Syntax.LeftParen)
+            {
+                if (atom is not MemberAccessExpression memberAccess)
+                    break;
+
+                Advance();
+                List<Expression> arguments = new();
+                if (MatchSyntax(Language.Syntax.RightParen) == null)
+                {
+                    do
+                    {
+                        var arg = ParseExpression();
+                        if (arg == null) return null;
+                        arguments.Add(arg);
+                    } while (MatchSyntax(Language.Syntax.Comma) != null);
+
+                    if (MatchSyntax(Language.Syntax.RightParen) == null)
+                    {
+                        Logger.LogError("Expected ')' after method call arguments", SourceFile, CurrentLocation);
+                        return null;
+                    }
+                }
+
+                atom = new MethodCallExpression(CurrentLocation, memberAccess, arguments);
+                continue;
+            }
+
             if (opToken.Lexeme is TokenValueOperator incDecToken &&
                 (incDecToken.Value == Language.Operator.Increment || incDecToken.Value == Language.Operator.Decrement))
             {
@@ -153,10 +183,8 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                 atom = new PostfixExpression(CurrentLocation, atom, incDecToken.Value);
                 continue;
             }
-            else
-            {
-                break;
-            }
+
+            break;
         }
 
         return atom;

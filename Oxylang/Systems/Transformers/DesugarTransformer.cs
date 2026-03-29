@@ -172,6 +172,11 @@ public class DesugarTransformer : IAstTransformer
         return node;
     }
 
+    public Node Visit(MethodCallExpression node)
+    {
+        return node;
+    }
+
     public Node Visit(IfStatement node)
     {
         return node;

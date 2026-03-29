@@ -27,6 +27,7 @@ public interface ILogger
     void LogInfo(string message, SourceFile file, SourceLocation location) => Log(LogLevel.Info, message, file, location);
     void LogWarning(string message, SourceFile file, SourceLocation location) => Log(LogLevel.Warning, message, file, location);
     void LogError(string message, SourceFile file, SourceLocation location) => Log(LogLevel.Error, message, file, location);
+    void LogDebug(string message, SourceFile o, SourceLocation location) => Log(LogLevel.Debug, message, o, location);
     bool HasErrors();
 }
 

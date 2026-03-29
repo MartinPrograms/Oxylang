@@ -27,6 +27,8 @@ public class ImportParser : IParser<IReadOnlyList<ImportStatement>>
 
     private ImportStatement? ParseImport()
     {
+        var attributes = parser.ParseAttributes();
+        
         if (parser.MatchKeyword(Language.Keyword.Import) == null) return null;
 
         var pathToken = parser.MatchString();
@@ -63,6 +65,6 @@ public class ImportParser : IParser<IReadOnlyList<ImportStatement>>
             return null;
         }
         
-        return new ImportStatement(pathToken.Location, path, alias);
+        return new ImportStatement(pathToken.Location, path, alias, attributes);
     }
 }

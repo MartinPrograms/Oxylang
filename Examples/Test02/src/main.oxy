@@ -1,0 +1,18 @@
+import "std" as std;
+
+import "graphics.oxy" as g;
+
+@entry 
+fn main() -> u8 {
+    g.init_window(800, 600, "Hello Oxy!");
+
+    while (!g.window_should_close()) {
+        g.begin_drawing();
+
+        g.clear_background(g.Color { r: 255u8, g: 255u8, b: 255u8, a: 255u8 });
+
+        g.end_drawing();
+    }
+
+    return 0u8;
+}

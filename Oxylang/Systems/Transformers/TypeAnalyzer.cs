@@ -11,7 +11,7 @@ public record AnalysisResult
 
 // Analyzes types, including type checking, type inference, and type compatibility.
 // Produces errors for type mismatches, incompatible types, and other type-related issues. 
-public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransformer<AnalysisResult>
+public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<ResolvedReliance> _resolvedReliances, CompilationUnit _thisUnit) : ITransformer<AnalysisResult>
 {
     private bool _success = true;
     
@@ -21,6 +21,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
 
     List<StructInfo> _structs = new();
     List<FunctionInfo> _functions = new();
+    private readonly Dictionary<string, CompilationUnit> _importAliases = new();
     Stack<Dictionary<string, TypeNode>> _scopeStack = new();
     FunctionInfo? _currentFunction = null;
     
@@ -259,7 +260,14 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
 
     public void Visit(ImportStatement node)
     {
-        // Does nothing. 
+        if (_importAliases.ContainsKey(node.Alias))
+        {
+            Error($"Import alias '{node.Alias}' is already defined.", node.Location);
+        }
+        else
+        {
+            _importAliases[node.Alias] = _resolvedReliances.First(x => x.Identifier == node.Path).Unit;
+        }
     }
 
     public void Visit(LiteralExpression node)
@@ -435,6 +443,9 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
                     return resolvedType;
                 }
             }
+
+            if (_importAliases.TryGetValue(variableExpression.Name, out var unit))
+                return new ModuleType(variableExpression.Location, unit);
 
             Error($"Variable '{variableExpression.Name}' is not defined in the current scope.",
                 variableExpression.Location);
@@ -612,6 +623,28 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
         if (expression is MemberAccessExpression memberAccessExpression)
         {
             var leftType = ResolveType(memberAccessExpression.Object);
+            if (leftType is ModuleType moduleType)
+            {
+                var unit = moduleType.Unit;
+
+                var subReliance = unit.Reliances.FirstOrDefault(r => r.Alias == memberAccessExpression.MemberName);
+                if (subReliance != null)
+                {
+                    var subUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == subReliance.Identifier)?.Unit;
+                    if (subUnit != null)
+                        return new ModuleType(memberAccessExpression.Location, subUnit);
+                }
+
+                var export = unit.Exports.FirstOrDefault(e => e.Identifier == memberAccessExpression.MemberName);
+                if (export == null)
+                {
+                    Error($"Module '{unit.Identifier}' has no exported member '{memberAccessExpression.MemberName}'.", memberAccessExpression.Location);
+                    return null;
+                }
+
+                return ResolveExportedType(unit, export);
+            }
+            
             if (memberAccessExpression.IsPointerAccess)
             {
                 if (leftType is PointerType pointerType)
@@ -758,7 +791,45 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
             return new PrimaryType(alignOfExpression.Location, PrimaryType.PrimaryTypeKind.U64);
         }
 
+        if (expression is MethodCallExpression methodCallExpression)
+        {
+            var objectType = ResolveType(methodCallExpression.Method);
+            if (objectType == null)
+            {
+                Error($"Could not resolve type of object in method call expression.",
+                    methodCallExpression.Method.Location);
+                return null;
+            }
+            
+            if (objectType is not FunctionType functionType)
+            {
+                Error($"Cannot call method on non-function type '{objectType.GetString(0)}'.",
+                    methodCallExpression.Method.Location);
+                return null;
+            }
+
+            return functionType.ReturnType;
+        }
+
         return null;
+    }
+    
+    private TypeNode? ResolveExportedType(CompilationUnit unit, Export export)
+    {
+        // Spin up a sub-analyzer for the dependency unit and ask it what the export's type is
+        var subAnalyzer = new TypeAnalyzer(
+            _logger, 
+            new SourceFile(unit.FilePath, unit.SourceCode), 
+            _resolvedReliances,
+            unit);
+        
+        return subAnalyzer.ResolveExportedSymbol(export.Identifier);
+    }
+
+    private TypeNode? ResolveExportedSymbol(string name)
+    {
+        _thisUnit.Exports.FirstOrDefault(e => e.Identifier == name)?.Type.Accept(this);
+        return _thisUnit.Exports.FirstOrDefault(e => e.Identifier == name)?.Type;
     }
 
     public void Visit(StructInitializerExpression node)
@@ -974,6 +1045,45 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile) : ITransforme
         {
             Error($"Unary operator '{node.Operator}' cannot be applied to type '{operandType.GetString(0)}'.", node.Location);
         }
+    }
+
+    public void Visit(MethodCallExpression node)
+    {
+        var objectType = ResolveType(node.Method);
+        if (objectType == null)
+        {
+            Error($"Could not resolve type of object in method call expression.", node.Method.Location);
+            return;
+        }
+        
+        if (objectType is not FunctionType functionType)
+        {
+            Error($"Cannot call non-function type '{objectType.GetString(0)}'.", node.Location);
+            return;
+        }
+        
+        if (functionType.ParameterTypes.Count != node.Arguments.Count)
+        {
+            Error($"Function expects {functionType.ParameterTypes.Count} argument(s), got {node.Arguments.Count}.", node.Location);
+            return;
+        }
+        
+        for (int i = 0; i < node.Arguments.Count; i++)
+        {
+            var argumentType = ResolveType(node.Arguments[i]);
+            if (argumentType == null)
+            {
+                Error($"Could not resolve type of argument {i + 1} in method call expression.", node.Arguments[i].Location);
+                continue;
+            }
+            
+            if (!AreTypesCompatible(functionType.ParameterTypes[i], argumentType))
+            {
+                Error($"Type of argument {i + 1} in method call expression is not compatible with parameter type '{functionType.ParameterTypes[i].GetString(0)}'.", node.Arguments[i].Location);
+            }
+        }
+        
+        // Success, the method call expression is valid, so we don't need to do any further checks here.
     }
 
     public void Visit(IfStatement node)

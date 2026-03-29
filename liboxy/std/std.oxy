@@ -1,0 +1,13 @@
+// The std.oxy is the main stdlib module. It re-exports other stdlib modules.
+
+/* 
+USAGE:
+
+import "std" as std;
+or
+import "std:math" as math; where :math is the name of the exported import. This is useful if you dont want to retype std.math every time.
+
+*/
+
+@public 
+import "math.oxy" as math;

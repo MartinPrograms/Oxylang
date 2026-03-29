@@ -1,0 +1,43 @@
+// Graphics through raylib, with a basic abstraction!
+
+@public 
+struct Color {
+    r: u8;
+    g: u8;
+    b: u8;
+    a: u8;
+}
+
+@public
+struct Vector2 {
+    x: f32;
+    y: f32;
+}
+
+@public 
+struct Vector3 {
+    x: f32;
+    y: f32;
+    z: f32;
+}
+
+@public 
+struct Vector4 {
+    x: f32;
+    y: f32;
+    z: f32;
+    w: f32;
+}
+
+@public @extern @symbol("InitWindow") fn init_window(width: i32, height: i32, title: ptr<u8>); 
+@public @extern @symbol("WindowShouldClose") fn window_should_close() -> u8;
+@public @extern @symbol("BeginDrawing") fn begin_drawing();
+@public @extern @symbol("EndDrawing") fn end_drawing();
+@public @extern @symbol("ClearBackground") fn clear_background(color: Color);
+@public @extern @symbol("DrawText") fn draw_text(text: ptr<u8>, x: i32, y: i32, font_size: i32, color: Color);
+@public @extern @symbol("DrawCircle") fn draw_circle(x: i32, y: i32, radius: f32, color: Color);
+@public @extern @symbol("DrawRectangle") fn draw_rectangle(x: i32, y: i32, width: i32, height: i32, color: Color);
+@public @extern @symbol("DrawLine") fn draw_line(x1: i32, y1: i32, x2: i32, y2: i32, color: Color);
+@public @extern @symbol("GetMousePosition") fn get_mouse_position() -> Vector2;
+@public @extern @symbol("GetMouseX") fn get_mouse_x() -> i32;
+@public @extern @symbol("GetMouseY") fn get_mouse_y() -> i32;

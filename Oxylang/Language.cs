@@ -6,6 +6,13 @@ public class Language
     public const string BlockCommentStart = "/*";
     public const string BlockCommentEnd = "*/";
     public const string StringDelimiter = "\"";
+
+    public enum Architecture
+    {
+        Amd64,
+        Arm64,
+        RiscV64
+    }
     
     public enum TokenType
     {

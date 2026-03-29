@@ -233,3 +233,19 @@ public class GenericType : TypeNode
         return $"{indent}GenericTypeParameter: {Name}";
     }
 }
+
+public class ModuleType : TypeNode
+{
+    public CompilationUnit? Unit { get; } 
+    
+    public ModuleType(SourceLocation location, CompilationUnit unit) : base(location)
+    {
+        Unit = unit;
+    }
+    
+    public override string GetString(int depth)
+    {
+        string indent = new string('-', depth * 4);
+        return $"{indent}ModuleType: {Unit.Identifier}";
+    }
+}

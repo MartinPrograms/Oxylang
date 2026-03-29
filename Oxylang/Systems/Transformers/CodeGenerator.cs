@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
+using System.Reflection;
 using Oxylang.Systems.Parsing;
 using Oxylang.Systems.Parsing.Nodes;
 using QbeGenerator;
@@ -9,11 +10,12 @@ namespace Oxylang.Systems.Transformers;
 
 public record CodeGeneratorResult(string Code, bool Success);
 
-public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bit) : ITransformer<CodeGeneratorResult>
+public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bit, List<ResolvedReliance> _resolvedReliances, CompilationUnit _thisUnit) : ITransformer<CodeGeneratorResult>
 {
     private QbeModule _module;
     public QbeModule Module => _module;
 
+    private Dictionary<string, CompilationUnit> _imports = new ();
     private Dictionary<string, (QbeAggregateType qbe, StructType type)> _structs = new ();
     private Dictionary<string, (QbeFunction qbe, FunctionType type)> _functions = new ();
     private Dictionary<string, QbeValue> _strings = new ();
@@ -48,7 +50,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
         foreach (var structDef in node.Structs)
         {
-            _structs[structDef.Name] = (_module.AddType(MangleName(structDef.Name, node)), structDef.StructType);
+            _structs[structDef.Name] = (_module.AddType(_thisUnit.MangleName(structDef.Name, node)), structDef.StructType);
         }
         
         foreach (var structDef in node.Structs)
@@ -218,26 +220,22 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             parameterTypes.Add(paramType);
         }
         
-        string symbol = MangleName(function.Name, function);
+        string symbol = _thisUnit.MangleName(function.Name, function);
         if (function.Attributes.Any(x => x.Name == "symbol"))
         {
             symbol = function.Attributes.First(x => x.Name == "symbol").Arguments[0];
         }
         
         QbeFunctionFlags flags = QbeFunctionFlags.None;
-        if (function.Attributes.Any(x => x.Name == "export"))
+        if (function.Attributes.Any(x => x.Name == "export" || x.Name == "public"))
         {
-            flags |= QbeFunctionFlags.Export;
+            flags = QbeFunctionFlags.Export;
         }
 
         if (function.Attributes.Any(x => x.Name == "entry"))
         {
             flags = QbeFunctionFlags.Export;
             symbol = "main";
-            if (_module.HasMainFunction())
-            {
-                _logger.LogError("Multiple entry points defined. Only one function can be marked with the 'entry' attribute.", _sourceFile, function.Location);
-            }
         }
 
         int count = 0;
@@ -307,7 +305,20 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
     public void Visit(ImportStatement node)
     {
+        if (_imports.ContainsKey(node.Path))
+        {
+            _logger.LogError("Module already imported: " + node.Path, _sourceFile, node.Location);
+            return;
+        }
         
+        var unit = _resolvedReliances.FirstOrDefault(r => r.Identifier == node.Path)?.Unit;
+        if (unit == null)
+        {
+            _logger.LogError("Failed to find compilation unit for import: " + node.Path, _sourceFile, node.Location);
+            return;
+        }
+        
+        _imports[node.Alias] = unit;
     }
 
     public void Visit(LiteralExpression node)
@@ -490,6 +501,43 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
     public void Visit(UnaryExpression node)
     {
         
+    }
+
+    public void Visit(MethodCallExpression node)
+    {
+        var method = GetNodeType(node.Method);
+        if (method == null || method is not FunctionType functionType)
+        {
+            _logger.LogError("Unable to determine type of method call.", _sourceFile,
+                node.Method.Location);
+            return;
+        }
+            
+        var unit = GetUnitFromType(method);
+        var export = unit.Exports.FirstOrDefault(e => e.Type == method);
+        if (export == null)
+        {
+            _logger.LogError("Unable to find method in exports of module.", _sourceFile,
+                node.Method.Location);
+            return;
+        }
+
+        var args = GetFunctionCallArguments(node.Arguments);
+        if (args.Any(x => x == null))
+        {
+            _logger.LogError("Invalid argument in method call.", _sourceFile, node.Location);
+            return;
+        }
+            
+        var called = _blocks.Peek().Call(unit.MangleName(export.Identifier, export.DefinitionNode),
+            functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
+            functionType.ParameterTypes.Count, args!);
+
+        if (called != null && functionType.ReturnType is PrimaryType)
+        {
+            called.PrimitiveEnum = GetQbeType(functionType.ReturnType, true) as QbePrimitive;
+            if (EnsureTypeSize(functionType.ReturnType, ref called)) return;
+        }
     }
 
     public void Visit(IfStatement node)
@@ -709,11 +757,42 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                     return value.type;
                 }
             }
+            
+            if (_functions.TryGetValue(variableExpr.Name, out var function))
+            {
+                return function.type;
+            }
+            
+            if (_structs.TryGetValue(variableExpr.Name, out var structType))
+            {
+                return structType.type;
+            }
+            
+            if (_imports.TryGetValue(variableExpr.Name, out var import))
+            {
+                return new ModuleType(variableExpr.Location, import);
+            }
         }
         
         if (node is MemberAccessExpression memberAccessExpr)
         {
             var targetType = GetNodeType(memberAccessExpr.Object);
+            if (targetType is ModuleType moduleType)
+            {
+                var unit = moduleType.Unit;
+
+                var subReliance = unit.Reliances.FirstOrDefault(r => r.Alias == memberAccessExpr.MemberName);
+                if (subReliance != null)
+                {
+                    var subUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == subReliance.Identifier);
+                    if (subUnit != null)
+                        return new ModuleType(memberAccessExpr.Location, subUnit.Unit);
+                }
+
+                var export = unit.Exports.FirstOrDefault(e => e.Identifier == memberAccessExpr.MemberName);
+                return ResolveExportedType(unit, export!);
+            }
+            
             if (targetType is PointerType pointerType)
             {
                 targetType = pointerType.BaseType;
@@ -789,11 +868,47 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         {
             return typeNode;
         }
+
+        if (node is MethodCallExpression methodCallExpr)
+        {
+            var objectType = GetNodeType(methodCallExpr.Method);
+            if (objectType == null)
+            {
+                _logger.LogError("Unable to determine type of method call object.", _sourceFile,
+                    methodCallExpr.Method.Location);
+                return null;
+            }
+            
+            if (objectType is not FunctionType functionType)
+            {
+                _logger.LogError("Method call target is not a function.", _sourceFile, methodCallExpr.Method.Location);
+                return null;
+            }
+
+            return functionType.ReturnType;
+        }
         
         _logger.LogError("Unable to determine type of node: " + node.GetString(0), _sourceFile, node.Location);
         return null;
     }
+
+    private TypeNode? ResolveExportedType(CompilationUnit unit, Export export)
+    {
+        var subCodeGenerator = new CodeGenerator(_logger, _sourceFile, _is64Bit, _resolvedReliances, unit);
+        return subCodeGenerator.ResolveExportedSymbol(export.Identifier)?.Type;
+    }
     
+    private Node? ResolveExportedNode(CompilationUnit unit, Export export)
+    {
+        var subCodeGenerator = new CodeGenerator(_logger, _sourceFile, _is64Bit, _resolvedReliances, unit);
+        return subCodeGenerator.ResolveExportedSymbol(export.Identifier)?.DefinitionNode;
+    }
+
+    private Export? ResolveExportedSymbol(string exportIdentifier)
+    {
+        return _thisUnit.Exports.FirstOrDefault(e => e.Identifier == exportIdentifier);
+    }
+
     private QbeValue VisitExpression(Expression expression, bool isLValue = false)
     {
         if (expression is LiteralExpression literal)
@@ -918,6 +1033,12 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                     
                     return loaded;
                 }
+            }
+            
+            if (_imports.TryGetValue(variableExpr.Name, out var unit))
+            {
+                _logger.LogError("Tried using module name as variable: " + variableExpr.Name, _sourceFile, variableExpr.Location);
+                return null;
             }
 
             _logger.LogError("Undefined variable: " + variableExpr.Name, _sourceFile, variableExpr.Location);
@@ -1168,9 +1289,97 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
             return _blocks.Peek().Convert(value, targetType); // Convert from the value's type to the target type.
         }
+        
+        if (expression is MethodCallExpression methodCallExpr)
+        {
+            // A method is attached to an import, not an object.
+            var method = GetNodeType(methodCallExpr.Method);
+            if (method == null || method is not FunctionType functionType)
+            {
+                _logger.LogError("Unable to determine type of method call.", _sourceFile,
+                    methodCallExpr.Method.Location);
+                return null;
+            }
+            
+            var unit = GetUnitFromType(method);
+            var export = unit.Exports.FirstOrDefault(e => e.Type == method);
+            if (export == null)
+            {
+                _logger.LogError("Unable to find method in exports of module.", _sourceFile,
+                    methodCallExpr.Method.Location);
+                return null;
+            }
+
+            var args = GetFunctionCallArguments(methodCallExpr.Arguments);
+            if (args.Any(x => x == null))
+            {
+                _logger.LogError("Invalid argument in method call.", _sourceFile, methodCallExpr.Location);
+                return null;
+            }
+            
+            var called = _blocks.Peek().Call(unit.MangleName(export.Identifier, export.DefinitionNode),
+                functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
+                functionType.ParameterTypes.Count, args!);
+
+            if (called != null && functionType.ReturnType is PrimaryType)
+            {
+                called.PrimitiveEnum = GetQbeType(functionType.ReturnType, true) as QbePrimitive;
+                if (EnsureTypeSize(functionType.ReturnType, ref called)) return null;
+            }
+
+            return called;
+        }
 
         _logger.LogError("Unsupported expression type: " + expression.GetString(0), _sourceFile, expression.Location);
         return null;
+    }
+
+    private CompilationUnit? FindUnitWithType(TypeNode typeToFind, CompilationUnit currentUnit)
+    {
+        foreach (var export in currentUnit.Exports)
+        {
+            if (export.Type == typeToFind)
+            {
+                return currentUnit;
+            }
+            
+            if (export.Type is ModuleType moduleType)
+            {
+                var subUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == moduleType.Unit.Identifier)?.Unit;
+                if (subUnit != null)
+                {
+                    var found = FindUnitWithType(typeToFind, subUnit);
+                    if (found != null)
+                        return found;
+                }
+            }
+        }
+
+        return null;
+    }
+    
+    private CompilationUnit GetUnitFromType(TypeNode typeToFind)
+    {
+        // Go through all the imports and find the one that matches the method's type, then return its unit.
+        // Recursively do this for submodules as well.
+        CompilationUnit? unit = null;
+        foreach (var import in _imports)
+        {
+            var foundUnit = FindUnitWithType(typeToFind, import.Value);
+            if (foundUnit != null)
+            {
+                unit = foundUnit;
+                break;
+            }
+        }
+        
+        if (unit == null)
+        {
+            _logger.LogError("Unable to find module from type.", _sourceFile, typeToFind.Location);
+            throw new Exception("Unable to find module from type.");
+        }
+        
+        return unit;
     }
 
     private QbeValue CreateNot(QbeValue operand)
@@ -1249,10 +1458,5 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         }
 
         return value;
-    }
-
-    private string MangleName(string name, Node node)
-    {
-        return $"_oxy{name}_{node.Location.Line}_{node.Location.Column}";
     }
 }
