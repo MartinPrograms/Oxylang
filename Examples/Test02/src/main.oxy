@@ -2,14 +2,42 @@ import "std" as std;
 
 import "graphics.oxy" as g;
 
-@entry 
+@extern @symbol("sprintf") fn sprintf(buffer: ptr<u8>, format: ptr<u8>, ...);
+@extern @symbol("malloc") fn malloc(size: u64) -> ptr<u8>;
+
+let WHITE: u32 = 0xFFFFFFFFu32;
+let BLACK: u32 = 0xFF000000u32;
+let RED: u32 = 0xFF0000FFu32;
+let BLUE: u32 = 0xFFFF0000u32;
+
+struct Vec2 {
+    x: f32;
+    y: f32;
+}
+
+@entry
 fn main() -> u8 {
+
+    let text_buffer = malloc(64u64);
+
     g.init_window(800, 600, "Hello Oxy!");
 
     while (!g.window_should_close()) {
         g.begin_drawing();
 
-        g.clear_background(g.Color { r: 255u8, g: 255u8, b: 255u8, a: 255u8 });
+        g.clear_background(BLACK);
+        
+        // let mouse_x = g.get_mouse_x();
+        // let mouse_y = g.get_mouse_y();
+        // let mouse_pos = Vec2 { x: cast<f32>(mouse_x), y: cast<f32>(mouse_y) };
+
+        // g.draw_circle(cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), 20.0f, RED);
+        // g.draw_line(400, 300, cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), BLUE);
+
+
+        sprintf(text_buffer, "Hello Oxy! fps: %f", cast<f64>(1.0f / g.get_frame_time()));
+        g.draw_text(text_buffer, 10, 10, 20, WHITE);
+
 
         g.end_drawing();
     }

@@ -397,10 +397,18 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         }
 
         QbeValue? inferredValue = null;
-        if (varType == null)
+        if (varType == null && _currentFunction != null)
         {
             inferredValue = VisitExpression(node.Initializer!);
             varType = inferredValue?.PrimitiveEnum;
+        }
+        else
+        {
+            if (_currentFunction == null && varType == null)
+            {
+                _logger.LogError("Global variable must have an explicit type or an initializer.", _sourceFile, node.Location);
+                return;
+            }
         }
 
         if (_currentFunction == null)
