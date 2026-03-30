@@ -207,7 +207,7 @@ public class ProjectCompiler(ILogger logger, Project project, Arguments argument
         
         foreach (var kvp in compiledUnits)
         {
-            var outputPath = Path.Combine(tempDirectory, Guid.NewGuid().ToString() + ".qbe");
+            var outputPath = Path.Combine(tempDirectory, FileHash(kvp.Value) + ".qbe");
             File.WriteAllText(outputPath, kvp.Value);
             outputPaths[kvp.Key] = outputPath;
 
@@ -239,7 +239,7 @@ public class ProjectCompiler(ILogger logger, Project project, Arguments argument
         
         foreach (var kvp in outputPaths)
         {
-            var outputBinary = Path.Combine(tempDirectory, Guid.NewGuid().ToString()) + ".o";
+            var outputBinary = Path.Combine(tempDirectory, FileHash(kvp.Value) + ".o");
             if (!RunProcess("clang", $"{kvp.Value}.S -o {outputBinary} {flags} -c", out var clangOutput))
             {
                 logger.LogError($"Failed to compile '{kvp.Key.Identifier}' with clang. Output: {clangOutput}", new SourceFile(kvp.Key.FilePath, kvp.Key.SourceCode), new SourceLocation(1, 1));
@@ -266,6 +266,12 @@ public class ProjectCompiler(ILogger logger, Project project, Arguments argument
             outputExecutable += ".exe";
         
         var linkFlags = string.Join(" ", objectFiles) + " -o " + outputExecutable + " " + flags;
+
+        if (OperatingSystem.IsMacOS())
+        {
+            linkFlags += " -L/opt/homebrew/lib -framework Cocoa -framework OpenGL -framework IOKit";
+        }
+        
         if (!RunProcess("clang", linkFlags, out var linkOutput))
         {
             logger.LogError($"Failed to link object files with clang. Output: {linkOutput}", new(), new());
@@ -275,6 +281,13 @@ public class ProjectCompiler(ILogger logger, Project project, Arguments argument
         logger.LogDebug("Wrote final executable to '" + outputExecutable + "'.", new(), new());
 
         return new(true);
+    }
+
+    private string FileHash(string kvpValue)
+    {
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(kvpValue));
+        return Convert.ToBase64String(hashBytes).Replace("/", "_").Replace("+", "-").Substring(0, 16);
     }
 
     private bool RunProcess(string process, string args, out string output)

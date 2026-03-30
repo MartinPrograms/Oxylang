@@ -24,6 +24,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
     private Stack<QbeBlock> _continueBlocks = new ();
     private Stack<QbeBlock> _breakBlocks = new ();
     private Stack<QbeBlock> _blocks = new ();
+    private QbeBlock? _allocateBlock; // all allocations are done in this block.
     private QbeFunction? _currentFunction;
 
     public CodeGeneratorResult Transform(Root node)
@@ -151,7 +152,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         {
             if (value.PrimitiveEnum is QbePrimitive and not { PrimitiveEnum: QbePrimitiveEnum.Pointer })
             {
-                var allocated = _blocks.Peek().Allocate(value.PrimitiveEnum, !_is64Bit);
+                var allocated = _allocateBlock.Allocate(value.PrimitiveEnum, !_is64Bit);
                 _blocks.Peek().Store(allocated, value);
                 value = allocated;
                 value.PrimitiveEnum = QbePrimitive.Pointer();
@@ -258,8 +259,9 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         _scopes.Push(new());
 
         _currentFunction = _functions[function.Name].qbe;
-        var block = _functions[function.Name].qbe.BuildEntryBlock();
-        _blocks.Push(block);
+        _allocateBlock = _currentFunction.BuildEntryBlock();
+        var afterAllocBlock = _currentFunction.BuildBlock("after_alloc");
+        _blocks.Push(afterAllocBlock);
         
         for (int i = 0; i < function.Parameters.Count; i++)
         {
@@ -268,7 +270,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
             if (param.Type is not StructType && param.Type is not NamedType && param.Type is not PointerType)
             {
-                _scopes.Peek()[param.Name] = (_blocks.Peek().Allocate(qbeParam.Primitive, !_is64Bit), param.Type);
+                _scopes.Peek()[param.Name] = (_allocateBlock.Allocate(qbeParam.Primitive, !_is64Bit), param.Type);
                 _blocks.Peek().Store(_scopes.Peek()[param.Name].qbe,
                     new QbeLocalRef(qbeParam.Primitive, qbeParam.Identifier));
             }
@@ -280,7 +282,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             else
             {
                 // Allocate enough space for the struct on the stack, then use memcpy to copy the parameter from the argument to the local.
-                var allocated = _blocks.Peek().Allocate(qbeParam.Primitive, !_is64Bit);
+                var allocated = _allocateBlock.Allocate(qbeParam.Primitive, !_is64Bit);
                 MemCopy(allocated, new QbeLocalRef(qbeParam.Primitive, qbeParam.Identifier), qbeParam.Primitive.ByteSize(!_is64Bit));
                 _scopes.Peek()[param.Name] = (allocated, param.Type);
             }
@@ -299,8 +301,11 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             _blocks.Peek().Return();
         }
         
+        _allocateBlock.Jump(afterAllocBlock); // Connect all allocations to the main function body.
+        
         _scopes.Pop();
         _currentFunction = null;
+        _allocateBlock = null;
     }
 
     public void Visit(ImportStatement node)
@@ -460,7 +465,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             }
             else
             {
-                var local = _blocks.Peek().Allocate(varType, !_is64Bit);
+                var local = _allocateBlock.Allocate(varType, !_is64Bit);
                 _scopes.Peek()[node.Name] = (local, (node.Type ?? GetNodeType(node.Initializer!))!);
 
                 // Store the initializer value if it exists, otherwise call memcpy
@@ -1102,7 +1107,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return null;
             }
             
-            var local = _blocks.Peek().Allocate(structType.qbe, !_is64Bit);
+            var local = _allocateBlock.Allocate(structType.qbe, !_is64Bit);
 
             foreach (var fieldInit in structInitExpr.FieldInitializers)
             {
@@ -1121,6 +1126,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                         fieldInit.Item2.Location);
                     return null;
                 }
+                fieldValue.PrimitiveEnum = GetQbeType(fieldInfo.Type, true) as QbePrimitive ?? fieldValue.PrimitiveEnum;
                 
                 var fieldIndex = structType.type.Fields.Index().First(x => x.Item.Name == fieldInit.Item1).Item1;
                 var fieldPtr = _blocks.Peek().GetFieldPtr(local, structType.qbe, fieldIndex, !_is64Bit);
@@ -1244,7 +1250,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return null;
             }
             
-            var pointer = _blocks.Peek().Allocate(QbePrimitive.Pointer(), !_is64Bit);
+            var pointer = _allocateBlock.Allocate(QbePrimitive.Pointer(), !_is64Bit);
             _blocks.Peek().Store(pointer, target);
             return pointer;
         }
