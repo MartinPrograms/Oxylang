@@ -27,12 +27,12 @@ fn main() -> u8 {
 
         g.clear_background(BLACK);
         
-        // let mouse_x = g.get_mouse_x();
-        // let mouse_y = g.get_mouse_y();
-        // let mouse_pos = Vec2 { x: cast<f32>(mouse_x), y: cast<f32>(mouse_y) };
+        let mouse_x = g.get_mouse_x();
+        let mouse_y = g.get_mouse_y();
+        let mouse_pos = Vec2 { x: cast<f32>(mouse_x), y: cast<f32>(mouse_y) };
 
-        // g.draw_circle(cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), 20.0f, RED);
-        // g.draw_line(400, 300, cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), BLUE);
+        g.draw_circle(cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), 20.0f, RED);
+        g.draw_line(400, 300, cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), BLUE);
 
 
         sprintf(text_buffer, "Hello Oxy! fps: %f", cast<f64>(1.0f / g.get_frame_time()));
