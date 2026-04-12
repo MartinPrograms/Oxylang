@@ -40,6 +40,7 @@ A C inspired language with less ambiguity!
 - `free`
 - `break`
 - `continue`
+- `this` - only valid as the first parameter of a function, and turns that function into an extension method the type ptr<T> where T is the type to extend.
 
 *Note*: sizeof, alignof and typeof are calculated during compilation. They do not happen during runtime.
 
@@ -169,7 +170,81 @@ let y = pf(5);
 - `@symbol("external_name")` - If in combination with @export, renames the function to "external_name". If in combination with @extern, it's the symbol to import.
 
 ### examples:
-```js
+```jsimport "std" as std;
+
+import "graphics.oxy" as g;
+
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...);
+
+fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+fn mul(a: i32, b: i32) -> i32 {
+    return a * b;
+}
+
+struct Point {
+    x: f64;
+    y: f64;
+    z: fn(ptr<Point>) -> f64;
+}
+
+let operation: fn(i32, i32) -> i32;
+
+let y: f64 = 0.0;
+let x: f64 = 0.0;
+
+fn callback() {
+    if (g::is_key_down(83)) { // S key
+        y += 100.0 * cast<f64>(g::get_frame_time());
+    }
+    if (g::is_key_down(87)) { // W key
+        y -= 100.0 * cast<f64>(g::get_frame_time());
+    }
+    if (g::is_key_down(65)) { // A key
+        x -= 100.0 * cast<f64>(g::get_frame_time());
+    }
+    if (g::is_key_down(68)) { // D key
+        x += 100.0 * cast<f64>(g::get_frame_time());
+    }
+
+    g::draw_circle(cast<i32>(x), cast<i32>(y), 10.0f, 0xFFFFFF00u32);
+}
+
+@extern @symbol("sqrt") fn sqrt(value: f64) -> f64;
+
+fn point_length(self: ptr<Point>) -> f64 {
+    return sqrt(self->x * self->x + self->y * self->y);
+}
+
+@entry
+fn main() -> u8 {
+    let test = std::math::add(10, 20);
+    printf("Result of std::math::add(10, 20): %d\n", test);
+    
+    operation = add;
+    let result = operation(5, 7);
+    printf("Result of add(5, 7): %d\n", result);
+
+    operation = mul;
+    let result2 = operation(5, 7);
+    printf("Result of mul(5, 7): %d\n", result2);
+
+    let test: fn(i32, i32) -> i32 = add;
+    let result3 = test(10, 20);
+    printf("Result of test(10, 20): %d\n", result3);
+
+    let point = Point { x: 3.0, y: 4.0, z: point_length };
+    let length = point.z(addr(point));
+    printf("Length of point (3, 4): %f\n", length);
+
+    let color = g::Color { r: 20u8, g: 40u8, b: 80u8, a: 255u8 };
+
+    g::run_loop(color, callback);
+
+    return 0u8;
+}
 @public @export @symbol("multiply") @callconv("cdecl") fn multiply(a: int, b: int) -> int{
     return a * b;
 }
@@ -193,7 +268,7 @@ extension methods do not listen to imported module names. if type `T` is importe
 
 ## Modules and imports:
 - each source file is a module.
-- a module can be referenced either by file path (with dropped .oxy) or by a build-system identifier.
+- a module can be referenced either by file path or by a build-system identifier. If .oxy is missing it is assumed to be a build system identifier. If the file path is missing it is assumed to be a build system identifier, and NOT a file path.
 - the source file's location is used as the root for relative paths.
 - to register something in the build system, add it to the list of modules as `id = "filePath.oxy"`. There are a few default modules, which rely on oxy installation directories.
 
@@ -215,11 +290,11 @@ fn add (x: int, y: int) -> int { return x + y; }
 
 main.oxy:
 ```js
-import "math" as m;
+import "math.oxy" as m;
 
 @entry
 fn start() -> u8{
-    let result: u8 = cast<u8>(m.add(10,3));
+    let result: u8 = cast<u8>(m::add(10,3));
     return result;
 } // returns 13
 ```
@@ -247,18 +322,18 @@ assignment operators have the lowest precendence.
 #### table:
 (lower number = higher precedence)
 
-| operator                         | description                                 | associativity | precedence |
-|----------------------------------|---------------------------------------------|---------------|------------|
-| `++`, `--`                       | post-increment/decrement                    | left          | 0          |
-| `()`                             | nested expressions, function calls          | left          | 1          |
-| `[]`, `.`, `->`                  | array access, member access, pointer access | left          | 2          |
-| `addr`, `deref`, `cast`          | pointer operations                          | right         | 3          |
-| `*`, `/`, `%`                    | multiplication, division, modulus           | left          | 4          |
-| `+`, `-`                         | addition, subtraction                       | left          | 5          |
-| `<`, `<=`, `>`, `>=`, `==`, `!=` | equality operators                          | left          | 6          |
-| `&&`, `\|\|`                     | logical AND, OR                             | left          | 7          |
-| `<<`, `>>`, `&`, `^`, `\|`       | bitwise operators                           | left          | 8          |
-| `=`, `+=`, `-=`, etc.            | assignment operators                        | right         | 9          |
+| operator                         | description                                                   | associativity | precedence |
+|----------------------------------|---------------------------------------------------------------|---------------|------------|
+| `++`, `--`                       | post-increment/decrement                                      | left          | 0          |
+| `()`                             | nested expressions, function calls                            | left          | 1          |
+| `[]`, `.`, `->`, `::`            | array access, member access, pointer access, namespace access | left          | 2          |
+| `addr`, `deref`, `cast`          | pointer operations                                            | right         | 3          |
+| `*`, `/`, `%`                    | multiplication, division, modulus                             | left          | 4          |
+| `+`, `-`                         | addition, subtraction                                         | left          | 5          |
+| `<`, `<=`, `>`, `>=`, `==`, `!=` | equality operators                                            | left          | 6          |
+| `&&`, `\|\|`                     | logical AND, OR                                               | left          | 7          |
+| `<<`, `>>`, `&`, `^`, `\|`       | bitwise operators                                             | left          | 8          |
+| `=`, `+=`, `-=`, etc.            | assignment operators                                          | right         | 9          |
 
 
 
@@ -311,14 +386,14 @@ fn main() -> u8 {
     InitWindow(width, height, title);
     SetTargetFPS(60);
 
-    io.println("Window initialized!");
+    io::println("Window initialized!");
 
     while (WindowShouldClose() == 0) {
         // Game loop would go here
         io.println("Running...");
     }
 
-    io.println("Closing window...");
+    io::println("Closing window...");
 
     CloseWindow();
     return 0;

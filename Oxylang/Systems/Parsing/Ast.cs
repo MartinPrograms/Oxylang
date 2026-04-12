@@ -41,7 +41,7 @@ public abstract class LeftValue : Expression
 /// </summary>
 public abstract class TypeNode : Node
 {
-    public TypeNode(SourceLocation location) : base(location)
+    public TypeNode() : base(new (0,0))
     {
     }
 
@@ -54,6 +54,19 @@ public abstract class TypeNode : Node
     {
         // Does nothing.
         return this;
+    }
+    
+    // Override the == operator to compare types structurally
+    public static bool operator ==(TypeNode? left, TypeNode? right)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        if (left is null || right is null) return false;
+        return left.GetString(0) == right.GetString(0);
+    }
+
+    public static bool operator !=(TypeNode? left, TypeNode? right)
+    {
+        return !(left == right);
     }
 }
 
@@ -78,7 +91,7 @@ public class PrimaryType : TypeNode
     
     public PrimaryTypeKind Kind { get; }
     
-    public PrimaryType(SourceLocation location, PrimaryTypeKind kind) : base(location)
+    public PrimaryType(PrimaryTypeKind kind) : base()
     {
         Kind = kind;
     }
@@ -92,19 +105,19 @@ public class PrimaryType : TypeNode
 
 public class NamedType : TypeNode
 {
-    public string Name { get; }
+    public List<string> Parts { get; }
     public List<TypeNode> TypeArguments { get; }
     
-    public NamedType(SourceLocation location, string name, List<TypeNode> typeArguments) : base(location)
+    public NamedType(List<string> parts, List<TypeNode> typeArguments) : base()
     {
-        Name = name;
+        Parts = parts;
         TypeArguments = typeArguments;
     }
     
     public override string GetString(int depth)
     {
         string indent = new string('-', depth * 4);
-        string result = $"{indent}NamedType: {Name}\n";
+        string result = $"{indent}NamedType: {string.Join("::", Parts)}\n";
         if (TypeArguments.Count > 0)
         {
             result += $"{indent}    TypeArguments:\n";
@@ -121,7 +134,7 @@ public class PointerType : TypeNode
 {
     public TypeNode BaseType { get; }
     
-    public PointerType(SourceLocation location, TypeNode baseType) : base(location)
+    public PointerType(TypeNode baseType) : base()
     {
         BaseType = baseType;
     }
@@ -138,7 +151,7 @@ public class ArrayType : TypeNode
     public TypeNode ElementType { get; }
     public int Length { get; }
     
-    public ArrayType(SourceLocation location, TypeNode elementType, int length) : base(location)
+    public ArrayType(TypeNode elementType, int length) : base()
     {
         ElementType = elementType;
         Length = length;
@@ -156,7 +169,7 @@ public class StructType : TypeNode
     public string Name { get; }
     public IReadOnlyList<VariableDeclaration> Fields { get; }
     
-    public StructType(SourceLocation location, string name, IReadOnlyList<VariableDeclaration> fields) : base(location)
+    public StructType(string name, IReadOnlyList<VariableDeclaration> fields) : base()
     {
         Name = name;
         Fields = fields;
@@ -179,12 +192,16 @@ public class FunctionType : TypeNode
     public IReadOnlyList<TypeNode> ParameterTypes { get; }
     public TypeNode ReturnType { get; }
     public bool IsVariadic { get; }
-    
-    public FunctionType(SourceLocation location, IReadOnlyList<TypeNode> parameterTypes, TypeNode returnType, bool isVariadic) : base(location)
+    public bool IsExternal { get; }
+    public bool IsExtensionMethod { get; }
+
+    public FunctionType(IReadOnlyList<TypeNode> parameterTypes, TypeNode returnType, bool isVariadic, bool isExternal, bool isExtensionMethod) : base()
     {
         ParameterTypes = parameterTypes;
         ReturnType = returnType;
         IsVariadic = isVariadic;
+        IsExternal = isExternal;
+        IsExtensionMethod = isExtensionMethod;
     }
     
     public override string GetString(int depth)
@@ -201,13 +218,15 @@ public class FunctionType : TypeNode
         }
         result += $"{indent}    ReturnType:\n{ReturnType.GetString(depth + 2)}\n";
         result += $"{indent}    IsVariadic: {IsVariadic}";
+        result += $"{indent}    IsExternal: {IsExternal}";
+        result += $"{indent}    IsExtensionMethod: {IsExtensionMethod}";
         return result;
     }
 }
 
 public class VoidType : TypeNode
 {
-    public VoidType(SourceLocation location) : base(location)
+    public VoidType() : base()
     {
     }   
     
@@ -222,7 +241,7 @@ public class GenericType : TypeNode
 {
     public string Name { get; }
     
-    public GenericType(SourceLocation location, string name) : base(location)
+    public GenericType(string name) : base()
     {
         Name = name;
     }
@@ -238,7 +257,7 @@ public class ModuleType : TypeNode
 {
     public CompilationUnit? Unit { get; } 
     
-    public ModuleType(SourceLocation location, CompilationUnit unit) : base(location)
+    public ModuleType(CompilationUnit unit) : base()
     {
         Unit = unit;
     }

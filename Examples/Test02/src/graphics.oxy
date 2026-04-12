@@ -2,13 +2,71 @@
 
 @public @extern @symbol("InitWindow") fn init_window(width: i32, height: i32, title: ptr<u8>); 
 @public @extern @symbol("WindowShouldClose") fn window_should_close() -> u8;
+@public @extern @symbol("CloseWindow") fn close_window();
 @public @extern @symbol("BeginDrawing") fn begin_drawing();
 @public @extern @symbol("EndDrawing") fn end_drawing();
-@public @extern @symbol("ClearBackground") fn clear_background(color: u32);
+@public @extern @symbol("ClearBackground") fn clear_background(color: Color);
 @public @extern @symbol("DrawText") fn draw_text(text: ptr<u8>, x: i32, y: i32, font_size: i32, color: u32);
 @public @extern @symbol("DrawCircle") fn draw_circle(x: i32, y: i32, radius: f32, color: u32);
 @public @extern @symbol("DrawRectangle") fn draw_rectangle(x: i32, y: i32, width: i32, height: i32, color: u32);
 @public @extern @symbol("DrawLine") fn draw_line(x1: i32, y1: i32, x2: i32, y2: i32, color: u32);
 @public @extern @symbol("GetMouseX") fn get_mouse_x() -> i32;
 @public @extern @symbol("GetMouseY") fn get_mouse_y() -> i32;
+@public @extern @symbol("IsKeyDown") fn is_key_down(key: i32) -> u8;
 @public @extern @symbol("GetFrameTime") fn get_frame_time() -> f32;
+
+@extern @symbol("malloc") fn malloc(size: u64) -> ptr<u8>;
+@extern @symbol("sprintf") fn sprintf(buffer: ptr<u8>, format: ptr<u8>, ...);
+
+@public
+struct Vec2 {
+    x: f32;
+    y: f32;
+}
+
+@public
+struct Color {
+    r: u8;
+    g: u8;
+    b: u8;
+    a: u8;
+}
+
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...);
+fn print_color(color: Color) {
+    printf("Color: r=%d g=%d b=%d a=%d\n", color.r, color.g, color.b, color.a);
+}
+    
+let WHITE: u32 = 0xFFFFFFFFu32;
+let BLACK: u32 = 0xFF000000u32;
+let RED: u32 = 0xFF0000FFu32;
+let BLUE: u32 = 0xFFFF0000u32;
+
+@public
+fn run_loop(color: Color, callback: fn()) {
+    print_color(color);
+    let text_buffer = malloc(64u64);
+    init_window(800, 600, "Hello Oxy!");
+
+    while (!window_should_close()) {
+        begin_drawing();
+
+        clear_background(color);
+        
+        let mouse_x = get_mouse_x();
+        let mouse_y = get_mouse_y();
+        let mouse_pos = Vec2 { x: cast<f32>(mouse_x), y: cast<f32>(mouse_y) };
+
+        draw_circle(cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), 20.0f, RED);
+        draw_line(400, 300, cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), BLUE);
+
+        sprintf(text_buffer, "Hello Oxy! fps: %f", cast<f64>(1.0f / get_frame_time()));
+        draw_text(text_buffer, 10, 10, 20, WHITE);
+
+        callback();
+
+        end_drawing();
+    }
+
+    close_window();
+}

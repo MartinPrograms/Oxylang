@@ -2,11 +2,11 @@ namespace Oxylang.Systems.Parsing.Nodes;
 
 public class StructInitializerExpression : Expression
 {
-    public string StructName { get; }
+    public List<string> StructName { get; }
     public List<TypeNode> GenericArguments { get; }
     public List<(string, Expression)> FieldInitializers { get; }
     
-    public StructInitializerExpression(SourceLocation location, string structName, List<TypeNode> genericArguments, List<(string, Expression)> fieldInitializers) : base(location)
+    public StructInitializerExpression(SourceLocation location, List<string> structName, List<TypeNode> genericArguments, List<(string, Expression)> fieldInitializers) : base(location)
     {
         StructName = structName;
         GenericArguments = genericArguments;

@@ -113,13 +113,13 @@ public class FunctionDefinitionParser : IParser<List<FunctionDefinition>>
         }
         else
         {
-            returnType = new VoidType(_parser.CurrentLocation);
+            returnType = new VoidType();
         }
         
         if (_parser.MatchSyntax(Language.Syntax.Semicolon) != null)
         {
             return new FunctionDefinition(nameToken.Location, nameToken.Value, parameters, attributes,
-                genericParameters.Select(x => new GenericType(nameToken.Location, x)).ToList(), returnType, null, isVariadic);
+                genericParameters.Select(x => new GenericType(x)).ToList(), returnType, null, isVariadic);
         }
         
         if (_parser.MatchSyntax(Language.Syntax.LeftBrace) == null)
@@ -138,6 +138,6 @@ public class FunctionDefinitionParser : IParser<List<FunctionDefinition>>
         }
         
         return new FunctionDefinition(nameToken.Location, nameToken.Value, parameters, attributes,
-            genericParameters.Select(x => new GenericType(nameToken.Location, x)).ToList(), returnType, body, isVariadic);
+            genericParameters.Select(x => new GenericType(x)).ToList(), returnType, body, isVariadic);
     }
 }

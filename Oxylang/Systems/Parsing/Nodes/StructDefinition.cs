@@ -14,7 +14,7 @@ public class StructDefinition : Node
         Attributes = attributes;
         GenericTypes = genericTypes;
         Fields = fields;
-        StructType = new StructType(location, name, fields);
+        StructType = new StructType(name, fields);
     }
 
     public override string GetString(int depth)

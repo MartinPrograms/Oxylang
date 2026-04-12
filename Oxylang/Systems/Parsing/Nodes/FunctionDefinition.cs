@@ -9,7 +9,8 @@ public class FunctionDefinition : Node
     public TypeNode ReturnType { get; }
     public BlockStatement? Body { get; }
     public bool IsVariadic { get; }
-    public FunctionType FunctionType => new FunctionType(Location, Parameters.Select(x => x.Type!).ToList(), ReturnType, IsVariadic);
+    public bool IsExternal => Body == null;
+    public FunctionType FunctionType => new FunctionType(Parameters.Select(x => x.Type!).ToList(), ReturnType, IsVariadic, IsExternal, Parameters.Count > 0 && Parameters[0].Name == "this");
     public FunctionDefinition(SourceLocation location, string name, IReadOnlyList<VariableDeclaration> parameters, IReadOnlyList<Attribute> attributes, IReadOnlyList<GenericType> genericTypes, TypeNode returnType, BlockStatement? body, bool isVariadic) : base(location)
     {
         Name = name;

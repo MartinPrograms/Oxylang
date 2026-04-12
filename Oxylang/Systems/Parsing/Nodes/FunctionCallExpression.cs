@@ -2,11 +2,11 @@ namespace Oxylang.Systems.Parsing.Nodes;
 
 public class FunctionCallExpression : Expression
 {
-    public string Identifier { get; }
+    public List<string> Identifier { get; }
     public List<TypeNode> GenericArgs { get; }
     public List<Expression> Arguments { get; }
     
-    public FunctionCallExpression(SourceLocation currentLocation, string identifier, List<TypeNode> genericArgs, List<Expression> arguments) : base(currentLocation)
+    public FunctionCallExpression(SourceLocation currentLocation, List<string> identifier, List<TypeNode> genericArgs, List<Expression> arguments) : base(currentLocation)
     {
         Identifier = identifier;
         GenericArgs = genericArgs;

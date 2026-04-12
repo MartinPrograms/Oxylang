@@ -91,7 +91,7 @@ public class RelianceBuilder(ILogger _logger, SourceFile _sourceFile) : ITransfo
         
         if (node.Attributes.Any(x => x.Name == "public"))
         {
-            _exports.Add(new Export(node.Alias, new ModuleType(node.Location, null), node));
+            _exports.Add(new Export(node.Alias, new ModuleType(null), node));
         }
     }
 

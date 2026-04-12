@@ -1,46 +1,64 @@
 import "std" as std;
-
 import "graphics.oxy" as g;
 
-@extern @symbol("sprintf") fn sprintf(buffer: ptr<u8>, format: ptr<u8>, ...);
-@extern @symbol("malloc") fn malloc(size: u64) -> ptr<u8>;
-
-let WHITE: u32 = 0xFFFFFFFFu32;
-let BLACK: u32 = 0xFF000000u32;
-let RED: u32 = 0xFF0000FFu32;
-let BLUE: u32 = 0xFFFF0000u32;
-
-struct Vec2 {
-    x: f32;
-    y: f32;
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...);
+/*
+fn add(a: i32, b: i32) -> i32 {
+    return a + b;
 }
+
+fn mul(a: i32, b: i32) -> i32 {
+    return a * b;
+}
+
+struct Point {
+    x: f64;
+    y: f64;
+}
+
+let operation: fn(i32, i32) -> i32;
+
+let y: f64 = 0.0;
+let x: f64 = 0.0;
+
+fn callback() {
+    if (g::is_key_down(83)) { // S key
+        y += 100.0 * cast<f64>(g::get_frame_time());
+    }
+    if (g::is_key_down(87)) { // W key
+        y -= 100.0 * cast<f64>(g::get_frame_time());
+    }
+    if (g::is_key_down(65)) { // A key
+        x -= 100.0 * cast<f64>(g::get_frame_time());
+    }
+    if (g::is_key_down(68)) { // D key
+        x += 100.0 * cast<f64>(g::get_frame_time());
+    }
+
+    g::draw_circle(cast<i32>(x), cast<i32>(y), 10.0f, 0xFFFFFF00u32);
+}
+*/
+@extern @symbol("sqrt") fn sqrt(value: f64) -> f64;
+
+struct Vector4 {
+    x: f64;
+    y: f64;
+    z: f64;
+    w: f64;
+}
+
+fn callback() {
+    let v = Vector4 { x: 1.0, y: 2.0, z: 3.0, w: 4.0 };
+    let length = sqrt(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w);
+    printf("Vector length: %f\n", length);
+}
+
 
 @entry
 fn main() -> u8 {
+    let black: g::Color = g::Color { r: 0u8, g: 0u8, b: 0u8, a: 255u8 };
 
-    let text_buffer = malloc(64u64);
-
-    g.init_window(800, 600, "Hello Oxy!");
-
-    while (!g.window_should_close()) {
-        g.begin_drawing();
-
-        g.clear_background(BLACK);
-        
-        let mouse_x = g.get_mouse_x();
-        let mouse_y = g.get_mouse_y();
-        let mouse_pos = Vec2 { x: cast<f32>(mouse_x), y: cast<f32>(mouse_y) };
-
-        g.draw_circle(cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), 20.0f, RED);
-        g.draw_line(400, 300, cast<i32>(mouse_pos.x), cast<i32>(mouse_pos.y), BLUE);
-
-
-        sprintf(text_buffer, "Hello Oxy! fps: %f", cast<f64>(1.0f / g.get_frame_time()));
-        g.draw_text(text_buffer, 10, 10, 20, WHITE);
-
-
-        g.end_drawing();
-    }
+    g::run_loop(black, callback);
 
     return 0u8;
 }

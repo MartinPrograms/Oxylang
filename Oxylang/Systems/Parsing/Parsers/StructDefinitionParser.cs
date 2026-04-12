@@ -93,6 +93,6 @@ public class StructDefinitionParser : IParser<IReadOnlyList<StructDefinition>>
             }
         }
         
-        return new StructDefinition(nameToken.Value, attributes, genericParameters.Select(x => new GenericType(nameToken.Location, x)).ToList(), fields, nameToken.Location);
+        return new StructDefinition(nameToken.Value, attributes, genericParameters.Select(x => new GenericType(x)).ToList(), fields, nameToken.Location);
     }
 }

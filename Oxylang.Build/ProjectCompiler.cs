@@ -164,8 +164,7 @@ public class ProjectCompiler(ILogger logger, Project project, Arguments argument
                 {
                     allUnits[i].Exports[j] = export with
                     {
-                        Type = new ModuleType(export.Type.Location,
-                            allUnits.FirstOrDefault(u => u.Identifier == importStatement.Path)!)
+                        Type = new ModuleType(allUnits.FirstOrDefault(u => u.Identifier == importStatement.Path)!)
                     };
                 }
             }

@@ -39,7 +39,7 @@ public class LiteralExpression : Expression
         }
         else if (Type is NamedType namedType)
         {
-            result += IntegerValue + " (named type " + namedType.Name + ")";
+            result += IntegerValue + " (named type " + string.Join("::", namedType.Parts) + ")";
         }
         
         return result;

@@ -27,6 +27,167 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
     private QbeBlock? _allocateBlock; // all allocations are done in this block.
     private QbeFunction? _currentFunction;
 
+    private bool TryFindStruct(List<string> parts, out (QbeAggregateType qbe, StructType type) result)
+    {
+        return TryFindStructInUnit(_thisUnit, parts, out result);
+    }
+    
+    private bool TryFindStructInUnit(CompilationUnit unit, List<string> parts, out (QbeAggregateType qbe, StructType type) result)
+    {
+        if (parts.Count == 1)
+        {
+            if (unit == _thisUnit)
+            {
+                if (_structs.TryGetValue(parts[0], out var structInfo))
+                {
+                    result = structInfo;
+                    return true;
+                }
+            }
+            
+            var structType =
+                unit.Exports.FirstOrDefault(x => x.Identifier == parts[0] && x.Type is StructType)?.Type as StructType;
+
+            if (structType != null)
+            {
+                result = (CreateQbeAggregate(structType, unit), structType);
+                return true;
+            }
+            
+            result = default;
+            return false;
+        }
+
+        if (unit.Reliances.All(x => x.Alias != parts[0]))
+        {
+            result = default;
+            return false;
+        }
+        
+        var reliance = unit.Reliances.First(x => x.Alias == parts[0]);
+        var relianceUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == reliance.Identifier)?.Unit;
+        if (relianceUnit == null)
+        {
+            result = default;
+            return false;
+        }
+
+        return TryFindStructInUnit(relianceUnit, parts.Skip(1).ToList(), out result);
+    }
+
+    private QbeAggregateType CreateQbeAggregate(StructType structType, CompilationUnit unit)
+    {
+        var aggregate =
+            new QbeAggregateType(unit.MangleName(structType.Name, structType));
+
+        foreach (var field in structType.Fields)
+        {
+            var fieldType = GetQbeType(field.Type!, true);
+            if (fieldType == null)
+            {
+                _logger.LogError("Unsupported field type: " + field.Type!.GetString(0), _sourceFile,
+                    field.Type!.Location);
+                continue;
+            }
+
+            aggregate.Add(fieldType);
+        }
+
+        if (!_structs.ContainsKey(aggregate.Identifier))
+        {
+            _structs[aggregate.Identifier] = (aggregate, structType);
+            _module.AddType(aggregate);
+        }
+        
+        return aggregate;
+    }
+    
+    private bool TryFindFunction(List<string> parts, out (QbeFunction qbe, FunctionType type) result, out bool isFunctionPointer)
+    {
+        isFunctionPointer = false;
+        foreach (var scope in _scopes)
+        {
+            if (scope.TryGetValue(parts[0], out var func) && func.type is FunctionType functionType && func.qbe is QbeLocalRef or QbeGlobalRef)
+            {
+                var identifier = func.qbe is QbeLocalRef localRef ? localRef.Identifier : ((QbeGlobalRef)func.qbe).Identifier;
+                
+                QbeValue loaded;
+                if (func.qbe is QbeGlobalRef)
+                {
+                    loaded = _blocks.Peek().Load(QbePrimitive.Pointer(), func.qbe);
+                    identifier = ((QbeLocalRef)loaded).Identifier;
+                }
+                else
+                {
+                    loaded = _blocks.Peek().Load(QbePrimitive.Pointer(), func.qbe);
+                    identifier = ((QbeLocalRef)loaded).Identifier;
+                }
+                isFunctionPointer = true;
+                
+                result = (new QbeFunction(identifier, QbeFunctionFlags.None,
+                    functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
+                    functionType.IsVariadic,
+                    functionType.ParameterTypes.Select((t, i) =>
+                        new QbeArgument(GetQbeType(t)!, $"arg_{i}")).ToArray()), functionType);
+
+                return true;
+            }
+        }
+        
+        return TryFindFunctionInUnit(_thisUnit, parts, out result);
+    }
+
+    private bool TryFindFunctionInUnit(CompilationUnit unit, List<string> parts,
+        out (QbeFunction qbe, FunctionType type) result)
+    {
+        if (parts.Count == 1)
+        {
+            if (unit == _thisUnit)
+            {
+                if (_functions.TryGetValue(parts[0], out var func))
+                {
+                    result = func;
+                    return true;
+                }
+            }
+            
+            var functionExport =
+                unit.Exports.FirstOrDefault(x => x.Identifier == parts[0] && x.Type is FunctionType);
+
+            var functionType = functionExport?.Type as FunctionType;
+            var functionNode = functionExport?.DefinitionNode as FunctionDefinition;
+            
+            if (functionType != null)
+            {
+                result = (new QbeFunction(unit.MangleName(parts[0], functionNode), QbeFunctionFlags.None,
+                    functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
+                    functionType.IsVariadic,
+                    functionType.ParameterTypes.Select((t, i) =>
+                        new QbeArgument(GetQbeType(t)!, $"arg_{i}")).ToArray()), functionType);
+                return true;
+            }
+
+            result = default;
+            return false;
+        }
+
+        if (unit.Reliances.All(x => x.Alias != parts[0]))
+        {
+            result = default;
+            return false;
+        }
+
+        var reliance = unit.Reliances.First(x => x.Alias == parts[0]);
+        var relianceUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == reliance.Identifier)?.Unit;
+        if (relianceUnit == null)
+        {
+            result = default;
+            return false;
+        }
+
+        return TryFindFunctionInUnit(relianceUnit, parts.Skip(1).ToList(), out result);
+    }
+
     public CodeGeneratorResult Transform(Root node)
     {
         _module = new QbeModule(!_is64Bit);
@@ -79,10 +240,9 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
     {
         _functions["printf"] = (new QbeFunction("printf", QbeFunctionFlags.None, QbePrimitive.Int32(false), true,
                 [new QbeArgument(QbePrimitive.Pointer(), "format")]),
-            new FunctionType(new(0, 0),
-                [new PointerType(new(0, 0), new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U8))],
-                new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.I32),
-                true));
+            new FunctionType([new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8))],
+                new PrimaryType(PrimaryType.PrimaryTypeKind.I32),
+                true, true, false));
 
         _functions["memcpy"] = (new QbeFunction("memcpy", QbeFunctionFlags.None, QbePrimitive.Pointer(), false,
             [
@@ -90,14 +250,14 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 new QbeArgument(QbePrimitive.Pointer(), "src"),
                 new QbeArgument(QbePrimitive.Int64(false), "n")
             ]),
-            new FunctionType(new(0, 0),
+            new FunctionType(
                 [
-                    new PointerType(new(0, 0), new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U8)),
-                    new PointerType(new(0, 0), new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U8)),
-                    new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U64)
+                    new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8)),
+                    new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8)),
+                    new PrimaryType(PrimaryType.PrimaryTypeKind.U64)
                 ],
-                new PointerType(new(0, 0), new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U8)),
-                false));
+                new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8)),
+                false, true, false));
 
         _functions["memset"] = (new QbeFunction("memset", QbeFunctionFlags.None, QbePrimitive.Pointer(), false,
             [
@@ -105,28 +265,28 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 new QbeArgument(QbePrimitive.Int32(false), "value"),
                 new QbeArgument(QbePrimitive.Int64(false), "n")
             ]),
-            new FunctionType(new(0, 0),
+            new FunctionType(
                 [
-                    new PointerType(new(0, 0), new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U8)),
-                    new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U8),
-                    new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U64)
+                    new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8)),
+                    new PrimaryType(PrimaryType.PrimaryTypeKind.U8),
+                    new PrimaryType(PrimaryType.PrimaryTypeKind.U64)
                 ],
-                new PointerType(new(0, 0), new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U8)),
-                false));
+                new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8)),
+                false, true, false));
 
         _functions["malloc"] = (new QbeFunction("malloc", QbeFunctionFlags.None, QbePrimitive.Pointer(), false,
                 [new QbeArgument(QbePrimitive.Int64(false), "size")]),
-            new FunctionType(new(0, 0),
-                [new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U64)],
-                new PointerType(new(0, 0), new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U8)),
-                false));
+            new FunctionType(
+                [new PrimaryType(PrimaryType.PrimaryTypeKind.U64)],
+                new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8)),
+                false, true, false));
 
         _functions["free"] = (new QbeFunction("free", QbeFunctionFlags.None, null, false,
                 [new QbeArgument(QbePrimitive.Pointer(), "ptr")]),
-            new FunctionType(new(0, 0),
-                [new PointerType(new(0, 0), new PrimaryType(new(0, 0), PrimaryType.PrimaryTypeKind.U8))],
-                new VoidType(new(0, 0)),
-                false));
+            new FunctionType(
+                [new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8))],
+                new VoidType(),
+                false, true, false));
     }
 
     public void Visit(AlignOfExpression node)
@@ -150,15 +310,8 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         }
         else
         {
-            if (value.PrimitiveEnum is QbePrimitive and not { PrimitiveEnum: QbePrimitiveEnum.Pointer })
-            {
-                var allocated = _allocateBlock.Allocate(value.PrimitiveEnum, !_is64Bit);
-                _blocks.Peek().Store(allocated, value);
-                value = allocated;
-                value.PrimitiveEnum = QbePrimitive.Pointer();
-            }
-            
-            MemCopy(left, value, value.PrimitiveEnum.ByteSize(!_is64Bit));
+            // For non-primitive types, we need to do a memcpy since they're passed by reference.
+            MemCopy(left, value, value.PrimitiveEnum!.ByteSize(!_is64Bit));
         }
     }
 
@@ -184,15 +337,16 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
     public void Visit(FunctionCallExpression node)
     {
-        var identifier = node.Identifier;
-        if (!_functions.TryGetValue(identifier, out var function))
+        if (!TryFindFunction(node.Identifier, out var function, out var isFunctionPointer))
         {
-            _logger.LogError("Undefined function: " + identifier, _sourceFile, node.Location);
+            _logger.LogError("Function not found: " + string.Join(".", node.Identifier), _sourceFile, node.Location);
             return;
         }
 
-        _blocks.Peek().Call(function.qbe.Identifier, function.qbe.ReturnType, function.qbe.Arguments.Count,
-            GetFunctionCallArguments(node.Arguments));
+        bool isExtern = !_module.HasFunction(function.qbe.Identifier);
+        
+        _blocks.Peek().Call(function.qbe.Identifier, isFunctionPointer, function.qbe.ReturnType, function.qbe.Arguments.Count,
+            GetFunctionCallArguments(node.Arguments, isExtern));
     }
 
     public void Visit(FunctionDefinition node)
@@ -281,10 +435,8 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             }
             else
             {
-                // Allocate enough space for the struct on the stack, then use memcpy to copy the parameter from the argument to the local.
-                var allocated = _allocateBlock.Allocate(qbeParam.Primitive, !_is64Bit);
-                MemCopy(allocated, new QbeLocalRef(qbeParam.Primitive, qbeParam.Identifier), qbeParam.Primitive.ByteSize(!_is64Bit));
-                _scopes.Peek()[param.Name] = (allocated, param.Type);
+                // For struct types we do not need to load them, since qbe already loads them 
+                _scopes.Peek()[param.Name] = (new QbeLocalRef(qbeParam.Primitive, qbeParam.Identifier), param.Type);
             }
         }
         
@@ -350,7 +502,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         };
 
         var binaryExpr = new BinaryExpression(node.Location, node.Primary, binaryOperator,
-            new LiteralExpression(node.Location, 1ul, GetNodeType(node.Primary)!));
+            new LiteralExpression(node.Location, 1ul, GetNodeType(node.Primary, out _)!));
         
         var assignmentExpr = new AssignmentExpression(node.Location, (LeftValue)node.Primary, binaryExpr);
         Visit(assignmentExpr);
@@ -452,7 +604,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 global = _module.AddGlobal(varType!, 0);
             }
             
-            _scopes.Peek()[node.Name] = (global, node.Type ?? GetNodeType(node.Initializer!)!);
+            _scopes.Peek()[node.Name] = (global, node.Type ?? GetNodeType(node.Initializer!, out _)!);
         }
         else
         {
@@ -461,12 +613,12 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             if (value is QbeGlobalRef globalRef)
             {
                 // For global variables, we can just use the global reference directly, since it's already a pointer.
-                _scopes.Peek()[node.Name] = (globalRef, node.Type ?? GetNodeType(node.Initializer!)!);
+                _scopes.Peek()[node.Name] = (globalRef, node.Type ?? GetNodeType(node.Initializer!, out _)!);
             }
             else
             {
                 var local = _allocateBlock.Allocate(varType, !_is64Bit);
-                _scopes.Peek()[node.Name] = (local, (node.Type ?? GetNodeType(node.Initializer!))!);
+                _scopes.Peek()[node.Name] = (local, (node.Type ?? GetNodeType(node.Initializer!, out _))!);
 
                 // Store the initializer value if it exists, otherwise call memcpy
                 if (value != null)
@@ -487,7 +639,10 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
     private void MemCopy(QbeValue local, QbeValue value, long byteSize)
     {
         var memcpyFunc = _functions["memcpy"];
-        _blocks.Peek().Call(memcpyFunc.qbe.Identifier, null, 3, local, value,
+        local.PrimitiveEnum = QbePrimitive.Pointer();
+        value.PrimitiveEnum = QbePrimitive.Pointer();
+
+        _blocks.Peek().Call(memcpyFunc.qbe.Identifier, false, null, 3, local, value,
             new QbeLiteral(QbePrimitive.Int64(false), byteSize));
     }
 
@@ -518,34 +673,54 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
     public void Visit(MethodCallExpression node)
     {
-        var method = GetNodeType(node.Method);
+        var method = GetNodeType(node.Method, out var isExternal);
+        // method is a function pointer, we need to load it and call it.
         if (method == null || method is not FunctionType functionType)
         {
             _logger.LogError("Unable to determine type of method call.", _sourceFile,
                 node.Method.Location);
             return;
         }
-            
-        var unit = GetUnitFromType(method);
-        var export = unit.Exports.FirstOrDefault(e => e.Type == method);
-        if (export == null)
-        {
-            _logger.LogError("Unable to find method in exports of module.", _sourceFile,
-                node.Method.Location);
-            return;
-        }
-
-        var args = GetFunctionCallArguments(node.Arguments);
+        
+        var args = GetFunctionCallArguments(node.Arguments, functionType.IsExternal);
         if (args.Any(x => x == null))
         {
             _logger.LogError("Invalid argument in method call.", _sourceFile, node.Location);
             return;
         }
-            
-        var called = _blocks.Peek().Call(unit.MangleName(export.Identifier, export.DefinitionNode),
-            functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
-            functionType.ParameterTypes.Count, args!);
+        
+        QbeLocalRef called;
+        
+        if (isExternal)
+        {
+            var unit = GetUnitFromType(method);
+            var export = unit.Exports.FirstOrDefault(e => e.Type == method);
+            if (export == null)
+            {
+                _logger.LogError("Unable to find method in exports of module.", _sourceFile,
+                    node.Method.Location);
+                return;
+            }
 
+            called = _blocks.Peek().Call(unit.MangleName(export.Identifier, export.DefinitionNode), false,
+                functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
+                functionType.ParameterTypes.Count, args!);
+        }
+        else
+        {
+            var funcPtr = VisitExpression(node.Method) as QbeLocalRef;
+            if (funcPtr == null)
+            {
+                _logger.LogError("Unable to load function pointer for method call.", _sourceFile,
+                    node.Method.Location);
+                return;
+            }
+            
+            called = _blocks.Peek().Call(funcPtr.Identifier, true,
+                functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
+                functionType.ParameterTypes.Count, args!);
+        }
+        
         if (called != null && functionType.ReturnType is PrimaryType)
         {
             called.PrimitiveEnum = GetQbeType(functionType.ReturnType, true) as QbePrimitive;
@@ -726,10 +901,13 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         
         if (typeNode is NamedType namedType)
         {
-            if (_structs.TryGetValue(namedType.Name, out var structType))
+            if (!TryFindStruct(namedType.Parts, out var structType))
             {
-                return structType.qbe;
+                _logger.LogError("Struct type not found: " + string.Join("::", namedType.Parts), _sourceFile, typeNode.Location);
+                return null;
             }
+            
+            return structType.qbe;
         }
         
         if (typeNode is StructType structTypeNode)
@@ -738,19 +916,29 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             {
                 return structType.qbe;
             }
+            
+            // Fuck it just generate it on the fly lol
+            return CreateQbeAggregate(structTypeNode, GetUnitFromType(structTypeNode));
         }
         
         if (typeNode is VoidType)
         {
             return null;
         }
+
+        if (typeNode is FunctionType)
+        {
+            // function types are pointers
+            return QbePrimitive.Pointer();
+        }
         
         _logger.LogError("Unsupported type: " + typeNode?.GetString(0), _sourceFile, typeNode?.Location ?? new SourceLocation(0, 0));
         return null;
     }
     
-    private TypeNode? GetNodeType(Node node)
-    {        
+    private TypeNode? GetNodeType(Node node, out bool isExternal) // isExternal is true if it does not come from this module
+    {
+        isExternal = false;
         if (node is LiteralExpression literalExpr)
         {
             return literalExpr.Type;
@@ -758,38 +946,44 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         
         if (node is StringExpression stringExpr)
         {
-            return new PointerType(stringExpr.Location, new PrimaryType(stringExpr.Location, PrimaryType.PrimaryTypeKind.U8));
+            return new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8));
         }
         
         if (node is VariableExpression variableExpr)
         {
+            if (variableExpr.Name.Count > 1)
+            {
+                throw new NotImplementedException("im lazyyyyy");
+            }
+            
             foreach (var scope in _scopes.Reverse())
             {
-                if (scope.TryGetValue(variableExpr.Name, out var value))
+                if (scope.TryGetValue(variableExpr.Name[0], out var value))
                 {
                     return value.type;
                 }
             }
             
-            if (_functions.TryGetValue(variableExpr.Name, out var function))
+            if (_functions.TryGetValue(variableExpr.Name[0], out var function))
             {
                 return function.type;
             }
             
-            if (_structs.TryGetValue(variableExpr.Name, out var structType))
+            if (_structs.TryGetValue(variableExpr.Name[0], out var structType))
             {
                 return structType.type;
             }
             
-            if (_imports.TryGetValue(variableExpr.Name, out var import))
+            if (_imports.TryGetValue(variableExpr.Name[0], out var import))
             {
-                return new ModuleType(variableExpr.Location, import);
+                return new ModuleType(import);
             }
         }
         
         if (node is MemberAccessExpression memberAccessExpr)
         {
-            var targetType = GetNodeType(memberAccessExpr.Object);
+            var externTargetType = false;
+            var targetType = GetNodeType(memberAccessExpr.Object, out externTargetType);
             if (targetType is ModuleType moduleType)
             {
                 var unit = moduleType.Unit;
@@ -799,10 +993,11 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 {
                     var subUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == subReliance.Identifier);
                     if (subUnit != null)
-                        return new ModuleType(memberAccessExpr.Location, subUnit.Unit);
+                        return new ModuleType(subUnit.Unit);
                 }
 
                 var export = unit.Exports.FirstOrDefault(e => e.Identifier == memberAccessExpr.MemberName);
+                isExternal = unit != _thisUnit;
                 return ResolveExportedType(unit, export!);
             }
             
@@ -813,13 +1008,16 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
             
             if (targetType is NamedType namedType)
             {
-                if (_structs.TryGetValue(namedType.Name, out var structType))
+                if (!TryFindStruct(namedType.Parts, out var structType))
                 {
-                    var field = structType.type.Fields.FirstOrDefault(x => x.Name == memberAccessExpr.MemberName);
-                    if (field != null)
-                    {
-                        return field.Type;
-                    }
+                    _logger.LogError("Struct type not found: " + string.Join("::", namedType.Parts), _sourceFile, memberAccessExpr.Location);
+                    return null;
+                }
+
+                var field = structType.type.Fields.FirstOrDefault(x => x.Name == memberAccessExpr.MemberName);
+                if (field != null)
+                {
+                    return field.Type;
                 }
             }
             else if (targetType is StructType structType)
@@ -834,15 +1032,18 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
         if (node is StructInitializerExpression structInitExpr)
         {
-            if (_structs.TryGetValue(structInitExpr.StructName, out var structType))
+            if (!TryFindStruct(structInitExpr.StructName, out var structType))
             {
-                return structType.type;
+                _logger.LogError("Struct type not found: " + string.Join("::", structInitExpr.StructName), _sourceFile, structInitExpr.Location);
+                return null;
             }
+            
+            return structType.type;
         }
 
         if (node is DereferenceExpression dereferenceExpr)
         {
-            var targetType = GetNodeType(dereferenceExpr.Expression);
+            var targetType = GetNodeType(dereferenceExpr.Expression, out isExternal);
             if (targetType is PointerType pointerType)
             {
                 return pointerType.BaseType;
@@ -851,30 +1052,33 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         
         if (node is AddressOfExpression addressOfExpr)
         {
-            var targetType = GetNodeType(addressOfExpr.Expression);
+            var targetType = GetNodeType(addressOfExpr.Expression, out isExternal);
             if (targetType != null)
             {
-                return new PointerType(addressOfExpr.Location, targetType);
+                return new PointerType(targetType);
             }
         }
         
         if (node is FunctionCallExpression functionCallExpr)
         {
-            if (_functions.TryGetValue(functionCallExpr.Identifier, out var function))
+            if (!TryFindFunction(functionCallExpr.Identifier, out var function, out var isFunctionPointer))
             {
-                return function.type.ReturnType;
+                _logger.LogError("Function not found: " + string.Join(".", functionCallExpr.Identifier), _sourceFile, functionCallExpr.Location);
+                return null;
             }
+            
+            return function.type.ReturnType;
         }
         
         if (node is BinaryExpression binaryExpr)
         {
-            var leftType = GetNodeType(binaryExpr.Left);
+            var leftType = GetNodeType(binaryExpr.Left, out _);
             return leftType;
         }
         
         if (node is CastExpression castExpr)
         {
-            return GetNodeType(castExpr.TargetType);
+            return GetNodeType(castExpr.TargetType, out isExternal);
         }
         
         if (node is TypeNode typeNode)
@@ -884,7 +1088,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
         if (node is MethodCallExpression methodCallExpr)
         {
-            var objectType = GetNodeType(methodCallExpr.Method);
+            var objectType = GetNodeType(methodCallExpr.Method, out _);
             if (objectType == null)
             {
                 _logger.LogError("Unable to determine type of method call object.", _sourceFile,
@@ -1020,9 +1224,14 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         
         if (expression is VariableExpression variableExpr)
         {
+            if (variableExpr.Name.Count > 1)
+            {
+                throw new NotImplementedException("im lazyyyyy2");
+            }
+            
             foreach (var scope in _scopes.Reverse())
             {
-                if (scope.TryGetValue(variableExpr.Name, out var value))
+                if (scope.TryGetValue(variableExpr.Name[0], out var value))
                 {                    
                     bool isStruct = value.type is NamedType or StructType;
 
@@ -1048,13 +1257,19 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 }
             }
             
-            if (_imports.TryGetValue(variableExpr.Name, out var unit))
+            if (_imports.TryGetValue(variableExpr.Name[0], out var unit))
             {
-                _logger.LogError("Tried using module name as variable: " + variableExpr.Name, _sourceFile, variableExpr.Location);
+                _logger.LogError("Tried using module name as variable: " + string.Join("::", variableExpr.Name), _sourceFile, variableExpr.Location);
                 return null;
             }
+            
+            if (TryFindFunction(variableExpr.Name, out var function, out var isFunctionPointer))
+            {
+                var copy = _blocks.Peek().Copy(new QbeGlobalRef(function.qbe.Identifier));
+                return copy;
+            }
 
-            _logger.LogError("Undefined variable: " + variableExpr.Name, _sourceFile, variableExpr.Location);
+            _logger.LogError("Undefined variable: " + string.Join("::", variableExpr.Name), _sourceFile, variableExpr.Location);
             return null;
         }
 
@@ -1100,10 +1315,9 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
         if (expression is StructInitializerExpression structInitExpr)
         {
-            var structType = _structs.FirstOrDefault(x => x.Key == structInitExpr.StructName).Value;
-            if (structType == default)
+            if (!TryFindStruct(structInitExpr.StructName, out var structType))
             {
-                _logger.LogError("Undefined struct type: " + structInitExpr.StructName, _sourceFile, structInitExpr.Location);
+                _logger.LogError("Struct type not found: " + string.Join("::", structInitExpr.StructName), _sourceFile, structInitExpr.Location);
                 return null;
             }
             
@@ -1130,7 +1344,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 
                 var fieldIndex = structType.type.Fields.Index().First(x => x.Item.Name == fieldInit.Item1).Item1;
                 var fieldPtr = _blocks.Peek().GetFieldPtr(local, structType.qbe, fieldIndex, !_is64Bit);
-                if (fieldInfo.Type is PrimaryType || fieldInfo.Type is PointerType)
+                if (fieldInfo.Type is PrimaryType || fieldInfo.Type is PointerType || fieldInfo.Type is FunctionType)
                     _blocks.Peek().Store(fieldPtr, fieldValue);
                 else
                     MemCopy(fieldPtr, fieldValue, fieldValue.PrimitiveEnum.ByteSize(!_is64Bit));
@@ -1148,7 +1362,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return null;
             }
 
-            var nodeType = GetNodeType(memberAccessExpr.Object);
+            var nodeType = GetNodeType(memberAccessExpr.Object, out var externTarget);
             
             if (memberAccessExpr.IsPointerAccess)
             {
@@ -1160,22 +1374,22 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return null;
             }
 
-            StructType? resolvedStruct = nodeType switch
+            (QbeAggregateType qbe, StructType type) resolvedStruct = nodeType switch
             {
-                StructType st => st,
-                NamedType nt when _structs.TryGetValue(nt.Name, out var s) => s.type,
-                PointerType { BaseType: NamedType nt2 } when _structs.TryGetValue(nt2.Name, out var s2) => s2.type,
-                PointerType { BaseType: StructType st2 } => st2,
-                _ => null
+                StructType st => (CreateQbeAggregate(st, GetUnitFromType(st)), st),
+                NamedType nt when TryFindStruct(nt.Parts, out var s) => s,
+                PointerType { BaseType: NamedType nt2 } when TryFindStruct(nt2.Parts, out var s2) => s2,
+                PointerType { BaseType: StructType st2 } => (CreateQbeAggregate(st2, GetUnitFromType(st2)), st2),
+                _ => default
             };
 
-            if (resolvedStruct == null)
+            if (resolvedStruct == default)
             {
                 _logger.LogError("Member access on non-struct type.", _sourceFile, memberAccessExpr.Location);
                 return null;
             }
 
-            var (fieldIndex, field) = resolvedStruct.Fields
+            var (fieldIndex, field) = resolvedStruct!.type.Fields
                 .Index()
                 .FirstOrDefault(x => x.Item.Name == memberAccessExpr.MemberName);
 
@@ -1186,13 +1400,13 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return null;
             }
 
-            var qbeStructType = _structs[resolvedStruct.Name].qbe;
+            var qbeStructType = resolvedStruct.qbe;
             var fieldPtr = _blocks.Peek().GetFieldPtr(target, qbeStructType, fieldIndex, !_is64Bit);
 
             if (isLValue || field.Type is NamedType or StructType)
                 return fieldPtr;
 
-            var fieldQbeType = GetQbeType(field.Type);
+            var fieldQbeType = GetQbeType(field.Type, true);
             if (fieldQbeType == null)
             {
                 _logger.LogError("Unsupported field type in member access: " + field.Type?.GetString(0), _sourceFile,
@@ -1224,7 +1438,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return loadedPtr;
             }
 
-            var targetType = GetNodeType(dereferenceExpr.Expression);
+            var targetType = GetNodeType(dereferenceExpr.Expression, out _);
             if (targetType is PointerType pointerType)
             {
                 var pointeeType = GetQbeType(pointerType.BaseType);
@@ -1257,21 +1471,20 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
         if (expression is FunctionCallExpression functionCallExpr)
         {
-            var identifier = functionCallExpr.Identifier;
-            if (!_functions.TryGetValue(identifier, out var function))
+            if (!TryFindFunction(functionCallExpr.Identifier, out var function, out var isFunctionPointer))
             {
-                _logger.LogError("Undefined function: " + identifier, _sourceFile, functionCallExpr.Location);
+                _logger.LogError("Function not found: " + string.Join(".", functionCallExpr.Identifier), _sourceFile, functionCallExpr.Location);
                 return null;
             }
 
-            var args = GetFunctionCallArguments(functionCallExpr.Arguments);
+            var args = GetFunctionCallArguments(functionCallExpr.Arguments, !_module.HasFunction(function.qbe.Identifier));
             if (args.Any(x => x == null))
             {
                 _logger.LogError("Invalid argument in function call.", _sourceFile, functionCallExpr.Location);
                 return null;
             }
 
-            var called = _blocks.Peek().Call(function.qbe.Identifier, function.qbe.ReturnType, function.qbe.Arguments.Count, args!);
+            var called = _blocks.Peek().Call(function.qbe.Identifier, isFunctionPointer, function.qbe.ReturnType, function.qbe.Arguments.Count, args!);
             if (called != null)
             {
                 if (function.type.ReturnType is PrimaryType)
@@ -1307,33 +1520,61 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         if (expression is MethodCallExpression methodCallExpr)
         {
             // A method is attached to an import, not an object.
-            var method = GetNodeType(methodCallExpr.Method);
+            var method = GetNodeType(methodCallExpr.Method, out var isExtern);
             if (method == null || method is not FunctionType functionType)
             {
                 _logger.LogError("Unable to determine type of method call.", _sourceFile,
                     methodCallExpr.Method.Location);
                 return null;
             }
-            
-            var unit = GetUnitFromType(method);
-            var export = unit.Exports.FirstOrDefault(e => e.Type == method);
-            if (export == null)
-            {
-                _logger.LogError("Unable to find method in exports of module.", _sourceFile,
-                    methodCallExpr.Method.Location);
-                return null;
-            }
 
-            var args = GetFunctionCallArguments(methodCallExpr.Arguments);
-            if (args.Any(x => x == null))
+            QbeLocalRef called;
+
+            if (isExtern)
             {
-                _logger.LogError("Invalid argument in method call.", _sourceFile, methodCallExpr.Location);
-                return null;
+                var unit = GetUnitFromType(method);
+                var export = unit.Exports.FirstOrDefault(e => e.Type == method);
+                if (export == null)
+                {
+                    _logger.LogError("Unable to find method in exports of module.", _sourceFile,
+                        methodCallExpr.Method.Location);
+                    return null;
+                }
+
+                var args = GetFunctionCallArguments(methodCallExpr.Arguments,
+                    !_module.HasFunction(unit.MangleName(export.Identifier, export.DefinitionNode)));
+                if (args.Any(x => x == null))
+                {
+                    _logger.LogError("Invalid argument in method call.", _sourceFile, methodCallExpr.Location);
+                    return null;
+                }
+
+                called = _blocks.Peek().Call(unit.MangleName(export.Identifier, export.DefinitionNode),
+                    false,
+                    functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
+                    functionType.ParameterTypes.Count, args!);
             }
-            
-            var called = _blocks.Peek().Call(unit.MangleName(export.Identifier, export.DefinitionNode),
-                functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
-                functionType.ParameterTypes.Count, args!);
+            else
+            {
+                var args = GetFunctionCallArguments(methodCallExpr.Arguments, false);
+                if (args.Any(x => x == null))
+                {   
+                    _logger.LogError("Invalid argument in method call.", _sourceFile, methodCallExpr.Location);
+                    return null;
+                }
+
+                var methodPtr = VisitExpression(methodCallExpr.Method) as QbeLocalRef;
+                if (methodPtr == null)
+                {
+                    _logger.LogError("Invalid method pointer in method call.", _sourceFile,
+                        methodCallExpr.Method.Location);
+                    return null;
+                }
+
+                called = _blocks.Peek().Call(methodPtr.Identifier, true,
+                    functionType.ReturnType != null ? GetQbeType(functionType.ReturnType) : null,
+                    functionType.ParameterTypes.Count, args!);
+            }
 
             if (called != null && functionType.ReturnType is PrimaryType)
             {
@@ -1350,6 +1591,19 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
 
     private CompilationUnit? FindUnitWithType(TypeNode typeToFind, CompilationUnit currentUnit)
     {
+        if (currentUnit == _thisUnit)
+        {
+            if (_structs.Values.Any(s => s.type == typeToFind))
+            {
+                return currentUnit;
+            }
+            
+            if (_functions.Values.Any(f => f.type == typeToFind))
+            {
+                return currentUnit;
+            }
+        }
+
         foreach (var export in currentUnit.Exports)
         {
             if (export.Type == typeToFind)
@@ -1357,43 +1611,31 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 return currentUnit;
             }
             
-            if (export.Type is ModuleType moduleType)
+            if (export.Type is StructType exSt && typeToFind is StructType st)
             {
-                var subUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == moduleType.Unit.Identifier)?.Unit;
-                if (subUnit != null)
+                if (exSt.Name == st.Name && exSt.Fields.Count == st.Fields.Count &&
+                    exSt.Fields.Zip(st.Fields, (f1, f2) => f1.Name == f2.Name && f1.Type.GetString(0) == f2.Type.GetString(0)).All(x => x))
                 {
-                    var found = FindUnitWithType(typeToFind, subUnit);
-                    if (found != null)
-                        return found;
+                    return currentUnit;
                 }
             }
         }
+        
+        foreach (var reliance in currentUnit.Reliances)
+        {
+            var subUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == reliance.Identifier)?.Unit;
+            if (subUnit == null) continue;
 
+            var found = FindUnitWithType(typeToFind, subUnit);
+            if (found != null) return found;
+        }
+        
         return null;
     }
     
     private CompilationUnit GetUnitFromType(TypeNode typeToFind)
     {
-        // Go through all the imports and find the one that matches the method's type, then return its unit.
-        // Recursively do this for submodules as well.
-        CompilationUnit? unit = null;
-        foreach (var import in _imports)
-        {
-            var foundUnit = FindUnitWithType(typeToFind, import.Value);
-            if (foundUnit != null)
-            {
-                unit = foundUnit;
-                break;
-            }
-        }
-        
-        if (unit == null)
-        {
-            _logger.LogError("Unable to find module from type.", _sourceFile, typeToFind.Location);
-            throw new Exception("Unable to find module from type.");
-        }
-        
-        return unit;
+        return FindUnitWithType(typeToFind, _thisUnit) ?? throw new Exception("Unable to find unit for type: " + typeToFind.GetString(0));
     }
 
     private QbeValue CreateNot(QbeValue operand)
@@ -1418,7 +1660,7 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
         return _blocks.Peek().Or(leftCond, rightCond);
     }
 
-    private QbeValue[] GetFunctionCallArguments(List<Expression> arguments)
+    private QbeValue[] GetFunctionCallArguments(List<Expression> arguments, bool isExtern)
     {
         var args = new QbeValue[arguments.Count];
         for (int i = 0; i < arguments.Count; i++)
@@ -1430,6 +1672,22 @@ public class CodeGenerator(ILogger _logger, SourceFile _sourceFile, bool _is64Bi
                 _logger.LogError("Invalid argument expression.", _sourceFile, arguments[i].Location);
                 return args;
             }
+            var argType = GetNodeType(arguments[i], out _);
+
+            if (argType is NamedType or StructType)
+            {
+                var structQbeType = GetQbeType(argType) as QbeAggregateType;
+                if (structQbeType == null)
+                {
+                    _logger.LogError("Unsupported struct type in extern function argument: " + argType.GetString(0),
+                        _sourceFile, argType.Location);
+                    return args;
+                }
+
+                argValue.PrimitiveEnum = structQbeType;
+            }
+
+
             args[i] = argValue;
         }
 

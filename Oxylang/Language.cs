@@ -91,6 +91,7 @@ public class Language
         Decrement, // --
         Arrow, // ->
         Dot, // .
+        NamespaceAccess, // ::
         Variadic, // ...
         
         // Assignment operators
@@ -128,6 +129,7 @@ public class Language
         { "--", Operator.Decrement },
         { "->", Operator.Arrow },
         { ".", Operator.Dot },
+        { "::", Operator.NamespaceAccess },
         { "=", Operator.Equals },
         { "+=", Operator.PlusEquals },
         { "-=", Operator.MinusEquals },
@@ -146,6 +148,7 @@ public class Language
         { Operator.Decrement, 0 },
         { Operator.Arrow, 2 },
         { Operator.Dot, 2 },
+        { Operator.NamespaceAccess, 2 },
         { Operator.Plus, 5 },
         { Operator.Minus, 5 },
         { Operator.Asterisk, 4 },
@@ -181,6 +184,7 @@ public class Language
         { Operator.Decrement, false },
         { Operator.Arrow, false },
         { Operator.Dot, false },
+        { Operator.NamespaceAccess, false },
         { Operator.Plus, true },
         { Operator.Minus, true },
         { Operator.Asterisk, true },

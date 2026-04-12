@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Oxylang.Systems.Parsing;
 using Oxylang.Systems.Parsing.Nodes;
 
@@ -17,11 +18,20 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
     
     record FieldInfo(string Name, TypeNode Type);
     record StructInfo(string Name, List<GenericType> Generics, List<FieldInfo> Fields);
-    record FunctionInfo(string Name, TypeNode ReturnType, List<GenericType> Generics, List<(string Name, TypeNode Type)> Parameters, bool IsVariadic);
+
+    record FunctionInfo(
+        string Name,
+        TypeNode ReturnType,
+        List<GenericType> Generics,
+        List<(string Name, TypeNode Type)> Parameters,
+        bool IsVariadic,
+        bool IsExternal);
 
     List<StructInfo> _structs = new();
     List<FunctionInfo> _functions = new();
-    private readonly Dictionary<string, CompilationUnit> _importAliases = new();
+    Dictionary<FunctionInfo, FunctionType> _functionTypes = new();
+    Dictionary<StructType, FunctionInfo[]> _structExtensions = new();
+    Dictionary<string, CompilationUnit> _importAliases = new();
     Stack<Dictionary<string, TypeNode>> _scopeStack = new();
     FunctionInfo? _currentFunction = null;
     
@@ -30,7 +40,119 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
         _success = false;
         _logger.Log(new Log(LogLevel.Error, message, _sourceFile, location));
     }
+
+    private bool TryFindFunction(List<string> identifier, out FunctionInfo? function)
+    {
+        // Function pointers use variables
+        foreach (var scope in _scopeStack)
+        {
+            if (scope.TryGetValue(identifier.Last(), out var type) && type is FunctionType functionType)
+            {
+                function = new FunctionInfo(identifier.Last(), functionType.ReturnType, new List<GenericType>(),
+                    functionType.ParameterTypes.Select((t, i) => ($"param{i}", t)).ToList(), functionType.IsVariadic, functionType.IsExternal);
+                return true;
+            }
+        }
+        
+        return TryFindFunctionInUnit(_thisUnit, identifier, out function);
+    }
+
+    private bool TryFindFunctionInUnit(CompilationUnit unit, List<string> identifier, out FunctionInfo? function)
+    {
+        if (identifier.Count == 1)
+        {
+            if (unit == _thisUnit)
+            {
+                // We *can* look at private functions in the current unit, since we're already inside the unit, so we check both exports and private functions.
+                var privateFunc = _functions.FirstOrDefault(x => x.Name == identifier[0]);  
+                if (privateFunc != null)
+                {
+                    function = privateFunc;
+                    return true;
+                }
+            }
+            
+            var type = unit.Exports.FirstOrDefault(x => x.Identifier == identifier[0] && x.Type is FunctionType)?.Type as FunctionType;
+            if (type == null)
+            {
+                function = null;
+                return false;
+            }
+
+            function = new FunctionInfo(identifier[0], type.ReturnType, new List<GenericType>(),
+                type.ParameterTypes.Select((t, i) => ($"param{i}", t)).ToList(), type.IsVariadic, type.IsExternal);
+            
+            return true;
+        }
+        
+        var importAlias = identifier[0];
+        if (unit.Reliances.All(r => r.Alias != importAlias))
+        {
+            function = null;
+            return false;
+        }
+
+        var reliance = unit.Reliances.First(r => r.Alias == importAlias);
+        var nextUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == reliance.Identifier)?.Unit;
+        if (nextUnit == null)
+        {
+            function = null;
+            return false;
+        }
+        
+        return TryFindFunctionInUnit(nextUnit, identifier.Skip(1).ToList(), out function);
+    }
     
+    private bool TryFindStruct(List<string> identifier, out StructInfo? structInfo)
+    {
+        return TryFindStructInUnit(_thisUnit, identifier.ToList(), out structInfo);
+    }
+
+    private bool TryFindStructInUnit(CompilationUnit unit, List<string> toList, out StructInfo structInfo)
+    {
+        if (toList.Count == 1)
+        {
+            if (unit == _thisUnit)
+            {
+                // We *can* look at private structs in the current unit, since we're already inside the unit, so we check both exports and private structs.
+                var privateStruct = _structs.FirstOrDefault(x => x.Name == toList[0]);  
+                if (privateStruct != null)
+                {
+                    structInfo = privateStruct;
+                    return true;
+                }
+            }
+            
+            var type = unit.Exports.FirstOrDefault(x => x.Identifier == toList[0] && x.Type is StructType)?.Type as StructType;
+            if (type == null)
+            {
+                structInfo = null;
+                return false;
+            }
+
+            structInfo = new StructInfo(toList[0], new List<GenericType>(),
+                type.Fields.Select(f => new FieldInfo(f.Name, f.Type)).ToList());
+            
+            return true;
+        }
+        
+        if (unit.Reliances.All(r => r.Alias != toList[0]))
+        {
+            structInfo = null;
+            return false;
+        }
+        
+        var reliance = unit.Reliances.First(r => r.Alias == toList[0]);
+        var subUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == reliance.Identifier)?.Unit;
+        if (subUnit == null)
+        {
+            structInfo = null;
+            return false;
+        }
+
+        return TryFindStructInUnit(subUnit, toList.Skip(1).ToList(), out structInfo);
+    }
+
     public AnalysisResult Transform(Root node)
     {
         Stopwatch sw = Stopwatch.StartNew();
@@ -61,14 +183,25 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
             Visit(structDef); // Here we actually visit the struct definitions, which will check for things like duplicate field names, and other struct-related issues.
         }
 
+        foreach (var function in node.Functions)
+        {
+            DefineFunction(function); // Again, we pre define, so that functions can call each other, and themselves recursively.
+        }
+
         foreach (var globalVar in node.GlobalVariables)
         {
             Visit(globalVar); // Global variables *are* linear (top to bottom)
         }
 
-        foreach (var function in node.Functions)
+        List<StructType> allStructs = new();
+        allStructs.AddRange(node.Structs.Select(x => x.StructType));
+        allStructs.AddRange(_resolvedReliances.SelectMany(x =>
+            x.Unit.Exports.Where(y => y.Type is StructType).Select(z => z.Type as StructType))!);
+        
+        foreach (var structType in allStructs)
         {
-            DefineFunction(function); // Again, we pre define, so that functions can call each other, and themselves recursively.
+            var extensions = ResolveExtensionFunctions(structType, _thisUnit);
+            _structExtensions[structType] = extensions;
         }
 
         foreach (var function in node.Functions)
@@ -76,17 +209,94 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
             Visit(function);
         }
     }
+    
+    private bool IsFunctionExtension(StructType structType, FunctionType functionType)
+    {
+        if (functionType.ParameterTypes.Count == 0)
+            return false;
+
+        if (!functionType.IsExtensionMethod)
+            return false;
+
+        var firstParam = functionType.ParameterTypes[0];
+        if (firstParam is PointerType pt)
+        {
+            return AreTypesCompatible(pt.BaseType, structType);
+        }
+        
+        return AreTypesCompatible(firstParam, structType);
+    }
+
+    private FunctionInfo[] ResolveExtensionFunctions(StructType definition, CompilationUnit unit)
+    {
+        List<FunctionInfo> extensions = new();
+        if (unit == _thisUnit)
+        {
+            extensions.AddRange(_functions.Where(f => IsFunctionExtension(definition, _functionTypes[f])));
+        }
+        
+        foreach (var export in unit.Exports.Where(e => e.Type is FunctionType))
+        {
+            if (IsFunctionExtension(definition, (export.Type as FunctionType)!))
+            {
+                var functionType = export.Type as FunctionType;
+                extensions.Add(new FunctionInfo(export.Identifier, functionType!.ReturnType, new List<GenericType>(),
+                    functionType.ParameterTypes.Select((t, i) => ($"param{i}", t)).ToList(), functionType.IsVariadic, functionType.IsExternal));
+            }
+        }
+        
+        foreach (var reliance in unit.Reliances)
+        {
+            var subUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == reliance.Identifier)?.Unit;
+            if (subUnit != null)
+            {
+                extensions.AddRange(ResolveExtensionFunctions(definition, subUnit));
+            }
+        }
+
+        var extensionNames = new HashSet<string>();
+        foreach (var extension in extensions)
+        {
+            if (extensionNames.Contains(extension.Name))
+            {
+                Error($"Struct '{definition.Name}' has multiple extension functions named '{extension.Name}', which is not allowed.", definition.Location);
+            }
+            else
+            {
+                extensionNames.Add(extension.Name);
+            }
+        }
+        
+        return extensions.ToArray();
+    }
 
     private void DefineFunction(FunctionDefinition function)
     {
-        if (_functions.All(x => x.Name != function.Name))
+        if (_functions.Any(x => x.Name == function.Name))
         {
-            _functions.Add(new FunctionInfo(function.Name, function.ReturnType, function.GenericTypes.ToList(),
-                function.Parameters.Select(x => (x.Name, x.Type!)).ToList(), function.IsVariadic));
+            Error($"Function '{function.Name}' is already defined.", function.Location);
             return;
         }
+        
+        var info = new FunctionInfo(function.Name, function.ReturnType, function.GenericTypes.ToList(),
+            function.Parameters.Select(x => (x.Name, ResolveType(x.Type!))).ToList(), function.IsVariadic, function.IsExternal);
 
-        Error($"Function '{function.Name}' is already defined.", function.Location);
+        var type = function.FunctionType;
+        _functions.Add(info);
+        _functionTypes[info] = type;
+        
+        
+        var exportedFunction =
+            _thisUnit.Exports.FirstOrDefault(e => e.Identifier == function.Name && e.Type is FunctionType);
+        
+        if (exportedFunction != null && exportedFunction.Type is FunctionType exportedFunctionType)
+        {
+            var index = _thisUnit.Exports.IndexOf(exportedFunction);
+            _thisUnit.Exports[index] = new Export(exportedFunction.Identifier,
+                new FunctionType(function.Parameters.Select(p => ResolveType(p.Type!)).ToList(),
+                    ResolveType(function.ReturnType)!, function.IsVariadic, function.IsExternal, function.Parameters.Count > 0 && function.Parameters[0].Name == "this"), exportedFunction.DefinitionNode);
+            
+        }
     }
 
     private void DefineStruct(StructDefinition structDef)
@@ -173,26 +383,24 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
 
     public void Visit(FunctionCallExpression node)
     {
-        if (_functions.All(x => x.Name != node.Identifier))
+        if (!TryFindFunction(node.Identifier, out var function))
         {
-            Error($"Function '{node.Identifier}' is not defined.", node.Location);
+            Error($"Function '{string.Join("::",node.Identifier)}' is not defined.", node.Location);
             return;
         }
-        
-        var function = _functions.First(x => x.Name == node.Identifier);
-        
+
         var substitutions = BuildSubstitutions(function, node);
         function = new FunctionInfo(function.Name, SubstituteGenerics(function.ReturnType, substitutions),
             function.Generics,
             function.Parameters.Select(p => (p.Name, SubstituteGenerics(p.Type, substitutions))).ToList(),
-            function.IsVariadic);
+            function.IsVariadic, function.IsExternal);
         
         for (int i = 0; i < node.Arguments.Count; i++)
         {
             var argumentType = ResolveType(node.Arguments[i]);
             if (argumentType == null)
             {
-                Error($"Could not resolve type of argument {i} in call to function '{node.Identifier}'.", node.Arguments[i].Location);
+                Error($"Could not resolve type of argument {i} in call to function '{string.Join("::", node.Identifier)}'.", node.Arguments[i].Location);
                 return;
             }
             
@@ -200,7 +408,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
             {
                 if (!function.IsVariadic)
                 {
-                    Error($"Too many arguments in call to function '{node.Identifier}'. Expected {function.Parameters.Count}, got {node.Arguments.Count}.", node.Location);
+                    Error($"Too many arguments in call to function '{string.Join("::", node.Identifier)}'. Expected {function.Parameters.Count}, got {node.Arguments.Count}.", node.Location);
                 }
                 break;
             }
@@ -209,7 +417,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
             if (!AreTypesCompatible(parameterType, argumentType))
             {
                 Error(
-                    $"Type of argument {i} in call to function '{node.Identifier}' is not compatible with parameter type '{parameterType.GetString(0)}'.",
+                    $"Type of argument {i} in call to function '{string.Join("::", node.Identifier)}' is not compatible with parameter type '{parameterType.GetString(0)}'.",
                     node.Arguments[i].Location);
             }
             
@@ -219,7 +427,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
         // Check for too few arguments
         if (node.Arguments.Count < function.Parameters.Count)
         {
-            Error($"Too few arguments in call to function '{node.Identifier}'. Expected {function.Parameters.Count}, got {node.Arguments.Count}.", node.Location);
+            Error($"Too few arguments in call to function '{string.Join("::", node.Identifier)}'. Expected {function.Parameters.Count}, got {node.Arguments.Count}.", node.Location);
         }
         
         // Success, this is a valid function call
@@ -392,7 +600,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
                 }
             }
             
-            Error($"Generic type '{genericType.Name}' is not defined in the current scope.", genericType.Location);
+            Error($"Generic type '{string.Join("::", genericType.Name)}' is not defined in the current scope.", genericType.Location);
             return null;
         }
 
@@ -410,22 +618,67 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
 
         if (type is NamedType namedType)
         {
-            var structInfo = _structs.FirstOrDefault(x => x.Name == namedType.Name);
-            if (structInfo != null)
+            if (TryFindStruct(namedType.Parts, out var structInfo))
             {
-                return new StructType(namedType.Location, structInfo.Name,
-                    structInfo.Fields.Select(x => new VariableDeclaration(x.Name, x.Type, [], null, x.Type.Location))
-                        .ToList());
+                var substitutions = new Dictionary<string, TypeNode>();
+                if (structInfo.Generics.Count > 0)
+                {
+                    if (namedType.TypeArguments.Count != structInfo.Generics.Count)
+                    {
+                        Error(
+                            $"Struct '{string.Join("::", namedType.Parts)}' expects {structInfo.Generics.Count} generic argument(s), got {namedType.TypeArguments.Count}.",
+                            namedType.Location);
+                    }
+                    else
+                    {
+                        for (int i = 0; i < structInfo.Generics.Count; i++)
+                        {
+                            var resolved = ResolveType(namedType.TypeArguments[i]);
+                            if (resolved != null)
+                                substitutions[structInfo.Generics[i].Name] = resolved;
+                        }
+                    }
+                }
+
+                return new StructType(namedType.Parts.Last(), structInfo.Fields
+                    .Select(f => new VariableDeclaration(f.Name, SubstituteGenerics(f.Type, substitutions), new(), null,
+                        f.Type!.Location))
+                    .ToList());
             }
             
-            var functionInfo = _functions.FirstOrDefault(x => x.Name == namedType.Name);
-            if (functionInfo != null)
+            if (TryFindFunction(namedType.Parts, out var functionInfo))
             {
-                return new FunctionType(namedType.Location, functionInfo.Parameters.Select(p => p.Type).ToList(),
-                    functionInfo.ReturnType, functionInfo.IsVariadic);
+                var substitutions = new Dictionary<string, TypeNode>();
+                if (functionInfo.Generics.Count > 0)
+                {
+                    if (namedType.TypeArguments.Count != functionInfo.Generics.Count)
+                    {
+                        Error(
+                            $"Function '{string.Join("::", namedType.Parts)}' expects {functionInfo.Generics.Count} generic argument(s), got {namedType.TypeArguments.Count}.",
+                            namedType.Location);
+                    }
+                    else
+                    {
+                        for (int i = 0; i < functionInfo.Generics.Count; i++)
+                        {
+                            var resolved = ResolveType(namedType.TypeArguments[i]);
+                            if (resolved != null)
+                                substitutions[functionInfo.Generics[i].Name] = resolved;
+                        }
+                    }
+                }
+
+                return new FunctionType(functionInfo.Parameters.Select(p => SubstituteGenerics(p.Type, substitutions)).ToList(),
+                    SubstituteGenerics(functionInfo.ReturnType, substitutions), functionInfo.IsVariadic, functionInfo.IsExternal, functionInfo.Parameters.Count > 0 && functionInfo.Parameters[0].Name == "this");
             }
             
-            Error($"Named type '{namedType.Name}' is not defined.", namedType.Location);
+            Error($"Type '{string.Join("::", namedType.Parts)}' is not defined.", namedType.Location);
+            return null;
+        }
+
+        if (type is NamedType)
+        {
+            Error($"Type '{string.Join("::", ((NamedType)type).Parts)}' is not defined.", type.Location);
             return null;
         }
         
@@ -436,19 +689,46 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
     {
         if (expression is VariableExpression variableExpression)
         {
-            foreach (var scope in _scopeStack)
+            if (variableExpression.Name.Count == 1)
             {
-                if (scope.TryGetValue(variableExpression.Name, out var resolvedType))
+
+                foreach (var scope in _scopeStack)
                 {
-                    return resolvedType;
+                    if (scope.TryGetValue(variableExpression.Name[0], out var resolvedType))
+                    {
+                        return resolvedType;
+                    }
                 }
+
+                if (_importAliases.TryGetValue(variableExpression.Name[0], out var unit))
+                    return new ModuleType(unit);
+                
+                if (TryFindFunction(variableExpression.Name, out var functionInfo))
+                {
+                    return new FunctionType(functionInfo.Parameters.Select(p => p.Type).ToList(), functionInfo.ReturnType, functionInfo.IsVariadic, functionInfo.IsExternal, functionInfo.Parameters.Count > 0 && functionInfo.Parameters[0].Name == "this");
+                }
+
+                Error($"Variable '{string.Join("::", variableExpression.Name)}' is not defined in the current scope.",
+                    variableExpression.Location);
+            }
+            else
+            {
+                // This could be either a struct or a function, so we check both.
+                if (TryFindStruct(variableExpression.Name, out var structInfo))
+                {
+                    return new StructType( variableExpression.Name.Last(),
+                        structInfo.Fields.Select(f => new VariableDeclaration(f.Name, f.Type, new(), null, f.Type!.Location)).ToList());
+                }
+                
+                if (TryFindFunction(variableExpression.Name, out var functionInfo))
+                {
+                    return new FunctionType(
+                        functionInfo.Parameters.Select(p => p.Type).ToList(), functionInfo.ReturnType, functionInfo.IsVariadic, functionInfo.IsExternal, functionInfo.Parameters.Count > 0 && functionInfo.Parameters[0].Name == "this");
+                }
+
+                Error($"Identifier '{string.Join("::", variableExpression.Name)}' is not defined in the current scope.", variableExpression.Location);
             }
 
-            if (_importAliases.TryGetValue(variableExpression.Name, out var unit))
-                return new ModuleType(variableExpression.Location, unit);
-
-            Error($"Variable '{variableExpression.Name}' is not defined in the current scope.",
-                variableExpression.Location);
             return null;
         }
 
@@ -456,19 +736,17 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
             return literalExpression.Type;
 
         if (expression is StringExpression stringExpression)
-            return new PointerType(stringExpression.Location,
-                new PrimaryType(stringExpression.Location, PrimaryType.PrimaryTypeKind.U8));
+            return new PointerType(new PrimaryType(PrimaryType.PrimaryTypeKind.U8));
         
         if (expression is FunctionCallExpression functionCallExpression)
         {
-            var functionInfo = _functions.FirstOrDefault(x => x.Name == functionCallExpression.Identifier);
-            if (functionInfo == null)
+            if (!TryFindFunction(functionCallExpression.Identifier, out var functionInfo))
             {
-                Error($"Function '{functionCallExpression.Identifier}' is not defined.", functionCallExpression.Location);
+                Error($"Function '{string.Join("::", functionCallExpression.Identifier)}' is not defined.", functionCallExpression.Location);
                 return null;
             }
             
-            var substitutions = BuildSubstitutions(functionInfo, functionCallExpression);
+            var substitutions = BuildSubstitutions(functionInfo!, functionCallExpression);
             var returnType = SubstituteGenerics(functionInfo.ReturnType, substitutions);
             
             return returnType;
@@ -533,14 +811,13 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
         if (expression is StructInitializerExpression structInitializerExpression)
         {
             var name = structInitializerExpression.StructName;
-            var structInfo = _structs.FirstOrDefault(x => x.Name == name);
-            if (structInfo == null)
+            if (!TryFindStruct(name, out var structInfo))
             {
                 Error($"Struct '{name}' is not defined.", structInitializerExpression.Location);
                 return null;
             }
 
-            if (structInitializerExpression.GenericArguments.Count != structInfo.Generics.Count)
+            if (structInitializerExpression.GenericArguments.Count != structInfo!.Generics.Count)
             {
                 Error(
                     $"Struct '{name}' expects {structInfo.Generics.Count} generic argument(s), got {structInitializerExpression.GenericArguments.Count}.",
@@ -617,7 +894,21 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
                 }
             }
             
-            return new StructType(structInitializerExpression.Location, name, fields);
+            if (name.Count > 1)
+            {
+                if (!TryFindStruct(name.ToList(), out var parentStructInfo))
+                {
+                    Error($"Struct '{string.Join("::", name)}' is not defined.", structInitializerExpression.Location);
+                    return null;
+                }
+
+                return new StructType(parentStructInfo.Name,
+                    parentStructInfo.Fields.Select(x =>
+                            new VariableDeclaration(x.Name, x.Type, new(), null, structInitializerExpression.Location))
+                        .ToList());
+            }
+            
+            return new StructType(name[0], fields);
         }
 
         if (expression is MemberAccessExpression memberAccessExpression)
@@ -632,7 +923,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
                 {
                     var subUnit = _resolvedReliances.FirstOrDefault(r => r.Identifier == subReliance.Identifier)?.Unit;
                     if (subUnit != null)
-                        return new ModuleType(memberAccessExpression.Location, subUnit);
+                        return new ModuleType(subUnit);
                 }
 
                 var export = unit.Exports.FirstOrDefault(e => e.Identifier == memberAccessExpression.MemberName);
@@ -659,21 +950,15 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
             
             if (leftType is NamedType namedType)
             {
-                var structInfo = _structs.FirstOrDefault(x => x.Name == namedType.Name);
-                var substitutions = new Dictionary<string, TypeNode>();
-                
-                if (structInfo != null)
+                if (TryFindStruct(namedType.Parts, out var structInfo))
                 {
-                    leftType = new StructType(namedType.Location, namedType.Name, structInfo.Fields
-                        .Select(f => new VariableDeclaration(f.Name, f.Type, new (), null, f.Type!.Location))
-                        .ToList());
-                    
-                    if (structInfo.Generics.Count > 0)
+                    var substitutions = new Dictionary<string, TypeNode>();
+                    if (structInfo!.Generics.Count > 0)
                     {
                         if (namedType.TypeArguments.Count != structInfo.Generics.Count)
                         {
                             Error(
-                                $"Struct '{namedType.Name}' expects {structInfo.Generics.Count} generic argument(s), got {namedType.TypeArguments.Count}.",
+                                $"Struct '{string.Join("::", namedType.Parts)}' expects {structInfo.Generics.Count} generic argument(s), got {namedType.TypeArguments.Count}.",
                                 namedType.Location);
                         }
                         else
@@ -688,19 +973,22 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
                             leftType = SubstituteGenerics(leftType, substitutions);
                         }
                     }
+
+                    leftType = new StructType(namedType.Parts.Last(), structInfo.Fields
+                        .Select(f => new VariableDeclaration(f.Name, SubstituteGenerics(f.Type, substitutions), new(),
+                            null, f.Type!.Location))
+                        .ToList());
                 }
-                
-                var functionInfo = _functions.FirstOrDefault(x => x.Name == namedType.Name);
-                if (functionInfo != null)
+
+                if (TryFindFunction(namedType.Parts, out var functionInfo))
                 {
-                    leftType = new FunctionType(namedType.Location, functionInfo.Parameters.Select(p => p.Type).ToList(), functionInfo.ReturnType, functionInfo.IsVariadic);
-                    
-                    if (functionInfo.Generics.Count > 0)
+                    var substitutions = new Dictionary<string, TypeNode>();
+                    if (functionInfo!.Generics.Count > 0)
                     {
                         if (namedType.TypeArguments.Count != functionInfo.Generics.Count)
                         {
                             Error(
-                                $"Function '{namedType.Name}' expects {functionInfo.Generics.Count} generic argument(s), got {namedType.TypeArguments.Count}.",
+                                $"Function '{string.Join("::", namedType.Parts)}' expects {functionInfo.Generics.Count} generic argument(s), got {namedType.TypeArguments.Count}.",
                                 namedType.Location);
                         }
                         else
@@ -711,10 +999,15 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
                                 if (resolved != null)
                                     substitutions[functionInfo.Generics[i].Name] = resolved;
                             }
-                            
+
                             leftType = SubstituteGenerics(leftType, substitutions);
                         }
                     }
+
+                    leftType = new FunctionType(functionInfo.Parameters.Select(p => SubstituteGenerics(p.Type, substitutions)).ToList(),
+                        SubstituteGenerics(functionInfo.ReturnType, substitutions), functionInfo.IsVariadic,
+                        functionInfo.IsExternal,
+                        functionInfo.Parameters.Count > 0 && functionInfo.Parameters[0].Name == "this");
                 }
             }
             
@@ -723,7 +1016,19 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
                 Error($"Cannot access member '{memberAccessExpression.MemberName}' of non-struct type '{leftType.GetString(0)}'.", memberAccessExpression.Location);
                 return null;
             }
-            
+
+            if (_structExtensions.Keys.Any(x=>x.Name == structType.Name))
+            {
+                var extensions = _structExtensions.First(x => x.Key.Name == structType.Name).Value;
+                if (extensions.Any(x => x.Name == memberAccessExpression.MemberName))
+                {
+                    var extension = extensions.First(x => x.Name == memberAccessExpression.MemberName);
+                    return new FunctionType(extension.Parameters.Select(p => p.Type).ToList(), extension.ReturnType,
+                        extension.IsVariadic, extension.IsExternal,
+                        true);
+                }
+            }
+
             var fieldInfo = structType.Fields.FirstOrDefault(x => x.Name == memberAccessExpression.MemberName);
             if (fieldInfo == null)
             {
@@ -744,7 +1049,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
                 return null;
             }
             
-            return new PointerType(addressOfExpression.Location, operandType);
+            return new PointerType(operandType);
         }
         
         if (expression is DereferenceExpression dereferenceExpression)
@@ -776,7 +1081,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
                 return null;
             }
 
-            return new PrimaryType(sizeOfExpression.Location, PrimaryType.PrimaryTypeKind.U64);
+            return new PrimaryType(PrimaryType.PrimaryTypeKind.U64);
         }
         
         if (expression is AlignOfExpression alignOfExpression)
@@ -788,7 +1093,7 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
                 return null;
             }
 
-            return new PrimaryType(alignOfExpression.Location, PrimaryType.PrimaryTypeKind.U64);
+            return new PrimaryType(PrimaryType.PrimaryTypeKind.U64);
         }
 
         if (expression is MethodCallExpression methodCallExpression)
@@ -834,12 +1139,14 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
 
     public void Visit(StructInitializerExpression node)
     {
-        var structInfo = _structs.FirstOrDefault(x => x.Name == node.StructName);   
-        if (structInfo == null)
+        var type = ResolveType(node);
+        if (type == null)
         {
-            Error($"Struct '{node.StructName}' is not defined.", node.Location);
+            Error($"Could not resolve type of struct initializer expression.", node.Location);
             return;
         }
+        
+        // Success, the type of a struct initializer expression is the struct type that it's initializing, so we don't need to do any further checks here.
     }
 
     public void Visit(VariableDeclaration node)
@@ -933,15 +1240,26 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
 
     public void Visit(VariableExpression node)
     {
+        if (node.Name.Count > 1)
+        {
+            Error("485784Im lazy, not implemented yet or something", node.Location);
+            return;
+        }
+        
         foreach (var scope in _scopeStack)
         {
-            if (scope.TryGetValue(node.Name, out var resolvedType))
+            if (scope.TryGetValue(node.Name[0], out var resolvedType))
             {
                 return;
             }
         }
+        
+        if (TryFindFunction(node.Name, out var functionInfo))
+        {
+            return;
+        }
 
-        Error($"Variable '{node.Name}' is not defined in the current scope.", node.Location);
+        Error($"Variable '{string.Join("::",node.Name)}' is not defined in the current scope.", node.Location);
     }
 
     public void Visit(AddressOfExpression node)
@@ -999,22 +1317,54 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
         
         if (objectType is NamedType namedType)
         {
-            var structInfo = _structs.FirstOrDefault(x => x.Name == namedType.Name);
-            if (structInfo != null)
+            if (TryFindStruct(namedType.Parts, out var structInfo))
             {
-                var fieldInfo = structInfo.Fields.FirstOrDefault(x => x.Name == node.MemberName);
-                if (fieldInfo == null)
+                var substitutions = new Dictionary<string, TypeNode>();
+                if (structInfo!.Generics.Count > 0)
                 {
-                    Error($"Struct '{namedType.Name}' does not have a field named '{node.MemberName}'.", node.Location);
+                    if (namedType.TypeArguments.Count != structInfo.Generics.Count)
+                    {
+                        Error(
+                            $"Struct '{string.Join("::", namedType.Parts)}' expects {structInfo.Generics.Count} generic argument(s), got {namedType.TypeArguments.Count}.",
+                            namedType.Location);
+                    }
+                    else
+                    {
+                        for (int i = 0; i < structInfo.Generics.Count; i++)
+                        {
+                            var resolved = ResolveType(namedType.TypeArguments[i]);
+                            if (resolved != null)
+                                substitutions[structInfo.Generics[i].Name] = resolved;
+                        }
+                        
+                        objectType = SubstituteGenerics(objectType, substitutions);
+                    }
                 }
-                return;
             }
-            
-            var functionInfo = _functions.FirstOrDefault(x => x.Name == namedType.Name);
-            if (functionInfo != null)
+
+            if (TryFindFunction(namedType.Parts, out var functionInfo))
             {
-                Error($"Cannot access member '{node.MemberName}' of function type '{namedType.Name}'.", node.Location);
-                return;
+                var substitutions = new Dictionary<string, TypeNode>();
+                if (functionInfo!.Generics.Count > 0)
+                {
+                    if (namedType.TypeArguments.Count != functionInfo.Generics.Count)
+                    {
+                        Error(
+                            $"Function '{string.Join("::", namedType.Parts)}' expects {functionInfo.Generics.Count} generic argument(s), got {namedType.TypeArguments.Count}.",
+                            namedType.Location);
+                    }
+                    else
+                    {
+                        for (int i = 0; i < functionInfo.Generics.Count; i++)
+                        {
+                            var resolved = ResolveType(namedType.TypeArguments[i]);
+                            if (resolved != null)
+                                substitutions[functionInfo.Generics[i].Name] = resolved;
+                        }
+
+                        objectType = SubstituteGenerics(objectType, substitutions);
+                    }
+                }
             }
         }
         
@@ -1228,11 +1578,11 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
             var substitutedFields = structType.Fields
                 .Select(f => new VariableDeclaration(f.Name, SubstituteGenerics(f.Type!, substitutions), new(), f.Initializer, f.Location))
                 .ToList();
-            return new StructType(structType.Location, structType.Name, substitutedFields);
+            return new StructType(structType.Name, substitutedFields);
         }
 
         if (type is PointerType pointerType)
-            return new PointerType(pointerType.Location, SubstituteGenerics(pointerType.BaseType, substitutions));
+            return new PointerType( SubstituteGenerics(pointerType.BaseType, substitutions));
 
         if (type is FunctionType functionType)
         {
@@ -1240,34 +1590,18 @@ public class TypeAnalyzer(ILogger _logger, SourceFile _sourceFile, List<Resolved
             var substitutedParams = functionType.ParameterTypes
                 .Select(p => SubstituteGenerics(p, substitutions))
                 .ToList();
-            return new FunctionType(functionType.Location, substitutedParams, substitutedReturn, functionType.IsVariadic);
+            
+            return new FunctionType( substitutedParams, substitutedReturn,
+                functionType.IsVariadic, functionType.IsExternal, functionType.IsExtensionMethod);
         }
         
         if (type is NamedType namedType)
         {
-            if (substitutions.TryGetValue(namedType.Name, out var substitutedNamed))
-                return substitutedNamed;
+            var substitutedArgs = namedType.TypeArguments
+                .Select(arg => SubstituteGenerics(arg, substitutions))
+                .ToList();
             
-            var structInfo = _structs.FirstOrDefault(x => x.Name == namedType.Name);
-            if (structInfo != null)
-            {
-                var substitutedFields = structInfo.Fields
-                    .Select(f => new VariableDeclaration(f.Name, SubstituteGenerics(f.Type!, substitutions), new(),
-                        null, f.Type!.Location))
-                    .ToList();
-                return new StructType(namedType.Location, namedType.Name, substitutedFields);
-            }
-            
-            var functionInfo = _functions.FirstOrDefault(x => x.Name == namedType.Name);
-            if (functionInfo != null)
-            {
-                var substitutedReturn = SubstituteGenerics(functionInfo.ReturnType, substitutions);
-                var substitutedParams = functionInfo.Parameters
-                    .Select(p => SubstituteGenerics(p.Type, substitutions))
-                    .ToList();
-                return new FunctionType(namedType.Location, substitutedParams, substitutedReturn,
-                    functionInfo.IsVariadic);
-            }
+            return new NamedType(namedType.Parts, substitutedArgs);
         }
 
         return type; // Primitives, void, etc. pass through unchanged

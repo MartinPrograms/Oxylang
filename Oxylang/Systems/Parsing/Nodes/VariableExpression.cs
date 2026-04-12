@@ -2,9 +2,9 @@ namespace Oxylang.Systems.Parsing.Nodes;
 
 public class VariableExpression : LeftValue
 {
-    public string Name { get; }
+    public List<string> Name { get; }
     
-    public VariableExpression(SourceLocation location, string name) : base(location)
+    public VariableExpression(SourceLocation location, List<string> name) : base(location)
     {
         Name = name;
     }

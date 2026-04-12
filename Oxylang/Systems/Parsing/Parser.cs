@@ -234,17 +234,17 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
         
         if (MatchKeyword(Language.Keyword.True) != null)
         {
-            return new LiteralExpression(CurrentLocation, 1, new PrimaryType(CurrentLocation, PrimaryType.PrimaryTypeKind.U8));
+            return new LiteralExpression(CurrentLocation, 1, new PrimaryType(PrimaryType.PrimaryTypeKind.U8));
         }
         
         if (MatchKeyword(Language.Keyword.False) != null)
         {
-            return new LiteralExpression(CurrentLocation, 0, new PrimaryType(CurrentLocation, PrimaryType.PrimaryTypeKind.U8));
+            return new LiteralExpression(CurrentLocation, 0, new PrimaryType(PrimaryType.PrimaryTypeKind.U8));
         }
         
         if (MatchKeyword(Language.Keyword.Null) != null)
         {
-            return new LiteralExpression(CurrentLocation, 0, new PointerType(CurrentLocation, new VoidType(CurrentLocation)));
+            return new LiteralExpression(CurrentLocation, 0, new PointerType(new VoidType()));
         }
         
         // Match sizeof<type> 
@@ -350,13 +350,13 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
             PrimaryType.PrimaryTypeKind kind;
             if (Enum.TryParse(numberToken.Type, true, out kind))
             {
-                type = new PrimaryType(CurrentLocation, kind);
+                type = new PrimaryType(kind);
             }
             else
             {
                 if (numberToken.Type == "f")
                 {
-                    type = new PrimaryType(CurrentLocation, PrimaryType.PrimaryTypeKind.F32);
+                    type = new PrimaryType(PrimaryType.PrimaryTypeKind.F32);
                 }
                 else
                 {
@@ -366,9 +366,9 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                     }
                     
                     if (numberToken.Value.Contains('.'))
-                        type = new PrimaryType(CurrentLocation, PrimaryType.PrimaryTypeKind.F64);
+                        type = new PrimaryType(PrimaryType.PrimaryTypeKind.F64);
                     else
-                        type = new PrimaryType(CurrentLocation, PrimaryType.PrimaryTypeKind.I32);
+                        type = new PrimaryType(PrimaryType.PrimaryTypeKind.I32);
                 }
             }
 
@@ -401,6 +401,20 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
         var identifierToken = MatchIdentifier();
         if (identifierToken != null)
         {
+            List<string> namespaceParts = new() { identifierToken.Value };
+            while (MatchOperator(Language.Operator.NamespaceAccess) != null)
+            {
+                var part = MatchIdentifier();
+                if (part == null)
+                {
+                    Logger.LogError("Expected identifier after '::' in variable reference", SourceFile,
+                        CurrentLocation);
+                    return null;
+                }
+                
+                namespaceParts.Add(part.Value);
+            }
+
             var indexBackup = _currentIndex;
             var madeMistake = false;
             List<TypeNode> genericArgs = new();
@@ -446,7 +460,7 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                     }
                 }
 
-                return new FunctionCallExpression(CurrentLocation, identifierToken.Value, genericArgs, arguments);
+                return new FunctionCallExpression(CurrentLocation, namespaceParts, genericArgs, arguments);
             }
 
             // Peek if the next token is a left brace, if so, parse it as a struct initializer
@@ -488,7 +502,7 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                     }
                 }
 
-                return new StructInitializerExpression(CurrentLocation, identifierToken.Value, genericArgs, fields);
+                return new StructInitializerExpression(CurrentLocation, namespaceParts, genericArgs, fields);
             }
             
             // Otherwise, it's a variable reference
@@ -498,7 +512,7 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                 return null;
             }
             
-            return new VariableExpression(CurrentLocation, identifierToken.Value);
+            return new VariableExpression(CurrentLocation, namespaceParts);
         }
 
         return null;
@@ -527,24 +541,28 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                     if (paramType == null) return null;
                     parameterTypes.Add(paramType);
                 } while (MatchSyntax(Language.Syntax.Comma) != null);
+                
+                if (MatchSyntax(Language.Syntax.RightParen) == null)
+                {
+                    Logger.LogError("Expected ')' after function parameter types", SourceFile, CurrentLocation);
+                    return null;
+                }
             }
-
-            if (MatchSyntax(Language.Syntax.RightParen) == null) return null;
-
+            
             // Optional return type
             if (MatchOperator(Language.Operator.Arrow) != null)
             {
                 var returnType = ParseType();
                 if (returnType == null) return null;
-                return new FunctionType(CurrentLocation, parameterTypes, returnType, isVariadic);
+                return new FunctionType(parameterTypes, returnType, isVariadic, false, false);
             }
 
-            return new FunctionType(CurrentLocation, parameterTypes, new VoidType(CurrentLocation), isVariadic);
+            return new FunctionType(parameterTypes, new VoidType(), isVariadic, false, false);
         }
 
         if (MatchIdentifier("void") != null)
         {
-            return new VoidType(CurrentLocation);
+            return new VoidType();
         }
         
         if (MatchKeyword(Language.Keyword.Ptr) != null)
@@ -555,7 +573,7 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
             if (CloseGeneric() == null) return null;
 
             if (pointedType == null) return null;
-            return new PointerType(CurrentLocation, pointedType);
+            return new PointerType(pointedType);
         }
 
         if (MatchKeyword(Language.Keyword.Array) != null)
@@ -580,7 +598,7 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
                 return null;
             }
 
-            return new ArrayType(CurrentLocation, elementType, int.Parse(sizeToken.Value));
+            return new ArrayType(elementType, int.Parse(sizeToken.Value));
         }
 
         var identifier = MatchIdentifier();
@@ -593,10 +611,21 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
             identifier.Value == "u64" || identifier.Value == "i64" ||
             identifier.Value == "f32" || identifier.Value == "f64")
         {
-            return new PrimaryType(CurrentLocation,
-                Enum.Parse<PrimaryType.PrimaryTypeKind>(identifier.Value.ToUpper()));
+            return new PrimaryType(Enum.Parse<PrimaryType.PrimaryTypeKind>(identifier.Value.ToUpper()));
         }
 
+        List<string> namespaceParts = new() { identifier.Value };
+        while (MatchOperator(Language.Operator.NamespaceAccess) != null)
+        {
+            var part = MatchIdentifier();
+            if (part == null)
+            {
+                Logger.LogError("Expected identifier after '::' in type name", SourceFile, CurrentLocation);
+                return null;
+            }
+            namespaceParts.Add(part.Value);
+        }
+        
         List<TypeNode> genericArgs = new();
 
         if (MatchOperator(Language.Operator.LessThan) != null)
@@ -612,7 +641,7 @@ public class Parser(List<Token> _tokens, SourceFile _sourceFile) : ICompilerSyst
             if (CloseGeneric() == null) return null;
         }
 
-        return new NamedType(CurrentLocation, identifier.Value, genericArgs);
+        return new NamedType(namespaceParts, genericArgs);
     }
 
     public TokenValueOperator? CloseGeneric()
