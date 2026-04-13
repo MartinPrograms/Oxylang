@@ -1,0 +1,38 @@
+import "raylib.oxy" as raylib;
+
+@entry
+fn main() -> u8 {
+    raylib::init_window(800, 600, "Pong");
+
+    let ball_x: f32 = 400.0f;
+    let ball_y: f32 = 300.0f;
+    let ball_speed_x: f32 = 5.0f;
+    let ball_speed_y: f32 = 5.0f;
+
+    while (!raylib::window_should_close()) {
+        raylib::begin_drawing();
+        raylib::clear_background(0xFF000000u32); // Black
+
+    
+        // Update ball position
+        ball_x = ball_x + ball_speed_x * raylib::get_frame_time() * 50.0f; // Adjust speed based on frame time
+        ball_y = ball_y + ball_speed_y * raylib::get_frame_time() * 50.0f; // Adjust speed based on frame time
+
+        // Check for collision with walls
+        if (ball_x < 0.0f || ball_x > 800.0f) {
+            ball_speed_x = -ball_speed_x; // Reverse X direction
+        }
+
+        if (ball_y < 0.0f || ball_y > 600.0f) {
+            ball_speed_y = -ball_speed_y; // Reverse Y direction
+        }
+
+        // Draw the ball
+        raylib::draw_circle(cast<i32>(ball_x), cast<i32>(ball_y), 10.0f, 0xFFFFFFFFu32); // White
+
+        raylib::end_drawing();
+    }
+
+    raylib::close_window();
+    return 0u8;
+}

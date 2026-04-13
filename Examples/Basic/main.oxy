@@ -1,0 +1,26 @@
+import "std" as std;
+@extern @symbol("printf") fn printf(format: ptr<u8>, ...) -> i32;
+
+@entry
+fn main(argc: i32, argv: ptr<ptr<u8>>) -> u8 {
+    let x: i32 = 42;
+    let y: ptr<u8> = "Hello, Oxy. X: %d\n";
+    printf(y, x);
+
+    let math = 3.14 * 2.0; // f64
+    let math_f32: f32 = 3.14f * 2.0f; // f32
+    printf("Math: %f, Math_f32: %f\n", math, cast<f64>(math_f32)); // %f is for f64, so we need to cast math_f32 to f64
+
+    for (let i = 0; i < 5; i = i + 1) {
+        printf("Loop iteration: %d\n", i);
+    }
+
+    while (x > 0) {
+        printf("While loop, x: %d\n", x);
+        x = x - 1;
+    }
+
+    std::println("This is a line printed using the standard library's println function.");
+
+    return 0u8;
+}

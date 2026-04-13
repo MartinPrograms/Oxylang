@@ -256,10 +256,8 @@ public class ProjectCompiler(ILogger logger, Project project, Arguments argument
         var objectFiles = Directory.GetFiles(tempDirectory, "*.o");
         var outputExecutable = Path.Combine(Directory.GetCurrentDirectory(), project.Output);
         
-        if (!Directory.Exists(Path.GetDirectoryName(outputExecutable)))
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(outputExecutable)!);
-        }
+        var outputDir = Path.GetDirectoryName(outputExecutable)!;
+        Directory.CreateDirectory(outputDir);
         
         if (OperatingSystem.IsWindows())
             outputExecutable += ".exe";
@@ -301,7 +299,8 @@ public class ProjectCompiler(ILogger logger, Project project, Arguments argument
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            WorkingDirectory = Directory.GetCurrentDirectory()
         };
         
         try

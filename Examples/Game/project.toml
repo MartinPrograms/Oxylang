@@ -1,0 +1,12 @@
+[project]
+name = "Pong"
+version = "0.1.0"
+output = "bin/Pong"
+type = "executable"
+sources = ["src/**/*.oxy"]
+
+[modules]
+std = "${OXYLIB}/std/std.oxy" # Linking the standard library
+
+[links]
+libs = ["m", "raylib"]

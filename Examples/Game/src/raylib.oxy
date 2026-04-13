@@ -1,0 +1,10 @@
+@public @extern @symbol("InitWindow") fn init_window(width: i32, height: i32, title: ptr<u8>);
+@public @extern @symbol("WindowShouldClose") fn window_should_close() -> u8;
+@public @extern @symbol("CloseWindow") fn close_window();
+@public @extern @symbol("GetFrameTime") fn get_frame_time() -> f32;
+@public @extern @symbol("BeginDrawing") fn begin_drawing();
+@public @extern @symbol("EndDrawing") fn end_drawing();
+@public @extern @symbol("ClearBackground") fn clear_background(color: u32);
+@public @extern @symbol("DrawText") fn draw_text(text: ptr<u8>, pos_x: i32, pos_y: i32, font_size: i32, color: u32);
+@public @extern @symbol("DrawCircle") fn draw_circle(center_x: i32, center_y: i32, radius: f32, color: u32);
+@public @extern @symbol("DrawRectangle") fn draw_rectangle(pos_x: i32, pos_y: i32, width: i32, height: i32, color: u32);

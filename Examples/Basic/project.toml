@@ -1,0 +1,12 @@
+[project]
+name = "Basic"
+version = "0.1.0"
+output = "bin/Basic"
+type = "executable"
+sources = ["main.oxy"]
+
+[modules]
+std = "${OXYLIB}/std/std.oxy" # Linking the standard library
+
+[links]
+libs = ["m"]
