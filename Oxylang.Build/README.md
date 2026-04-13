@@ -18,3 +18,4 @@ libs = ["m", "raylib"]
 ```
 
 Everything after the `[project]` header is optional.
+`${OXYLIB}` is an environment variable, and should be set to `./liboxy/` but as a full path.
