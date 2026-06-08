@@ -390,7 +390,7 @@ fn main() -> u8 {
 
     while (WindowShouldClose() == 0) {
         // Game loop would go here
-        io.println("Running...");
+        io::println("Running...");
     }
 
     io::println("Closing window...");
