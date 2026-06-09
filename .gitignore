@@ -3,4 +3,5 @@
 /Oxylang/bin/
 /Oxylang.Build/obj/
 /Oxylang.Build/bin/
-
+/Examples/Basic/bin/
+/Examples/Pong/bin/
